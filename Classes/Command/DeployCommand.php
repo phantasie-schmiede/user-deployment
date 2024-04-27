@@ -32,6 +32,9 @@ use function is_array;
  * Example:
  * {
  *     "be_groups: {
+ *         "_default": {
+ *
+ *         },
  *         "_variables": {
  *
  *         },
@@ -42,6 +45,9 @@ use function is_array;
  *         }
  *     },
  *     "be_users": {
+ *         "_default": {
+ *             "company": "Doe Inc."
+ *         },
  *         "jadoe": {
  *             "groups": ["basic"],
  *             "name": "Jane Doe"
@@ -80,6 +86,7 @@ class DeployCommand extends Command
     protected array        $backendGroups          = [];
     protected string       $currentRecordType      = '';
     protected bool         $dryRun                 = false;
+    protected array        $frontendGroups         = [];
     protected SymfonyStyle $io;
     protected bool         $removeAbandonedRecords = false;
 
@@ -123,19 +130,19 @@ class DeployCommand extends Command
         }
 
         if (!empty($configuration['be_groups']) && is_array($configuration['be_groups'])) {
-            $this->deployBackendGroups($configuration['be_groups']);
+            $this->deploy($configuration['be_groups'], self::RECORD_TYPES['BACKEND_GROUP']);
         }
 
         if (!empty($configuration['be_users']) && is_array($configuration['be_users'])) {
-            $this->deployBackendUsers($configuration['be_users']);
+            $this->deploy($configuration['be_users'], self::RECORD_TYPES['BACKEND_USER']);
         }
 
         if (!empty($configuration['fe_groups']) && is_array($configuration['fe_groups'])) {
-            $this->deployFrontendGroups($configuration['fe_groups']);
+            $this->deploy($configuration['fe_groups'], self::RECORD_TYPES['FRONTEND_GROUP']);
         }
 
         if (!empty($configuration['fe_users']) && is_array($configuration['fe_users'])) {
-            $this->deployFrontendUsers($configuration['fe_users']);
+            $this->deploy($configuration['fe_users'], self::RECORD_TYPES['FRONTEND_USER']);
         }
 
         return Command::SUCCESS;
@@ -177,34 +184,18 @@ class DeployCommand extends Command
     /**
      * @throws Exception
      */
-    private function deployBackendGroups(array $backendGroupsConfiguration): void
+    private function deploy(array $configuration, string $currentRecordType): void
     {
-        $this->currentRecordType = self::RECORD_TYPES['BACKEND_GROUP'];
-        $variables = $this->extractVariables($backendGroupsConfiguration);
-        $identifiers = array_keys($backendGroupsConfiguration);
-        $this->backendGroups = array_fill_keys($identifiers, 0);
-        $subgroupReferences = [];
+        $this->currentRecordType = $currentRecordType;
+        $createdRecords = 0;
+        $updatedRecords = 0;
 
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getQueryBuilderForTable(self::TABLES[$this->currentRecordType]);
-        $existingRecords = $queryBuilder->select(self::IDENTIFIER_FIELDS[$this->currentRecordType], 'uid')
-            ->from(self::TABLES[$this->currentRecordType])
-            ->where(
-                $queryBuilder->expr()
-                    ->in(
-                        self::IDENTIFIER_FIELDS[$this->currentRecordType],
-                        $queryBuilder->createNamedParameter(
-                            $identifiers,
-                            ArrayParameterType::STRING
-                        )
-                    )
-            )
-            ->executeQuery()
-            ->fetchAllAssociative();
-
-        foreach ($existingRecords as $existingRecord) {
-            $this->backendGroups[$existingRecord[self::IDENTIFIER_FIELDS[$this->currentRecordType]]] = $existingRecord['uid'];
-        }
+        // The default settings and variables have to be extracted before further processing of the array!
+        $default = $this->extractValue($configuration, '_default');
+        $variables = $this->extractValue($configuration, '_variables');
+        $identifiers = array_keys($configuration);
+        $existingRecords = $this->getExistingRecords($identifiers);
+        $existingIdentifiers = array_column($existingRecords, self::IDENTIFIER_FIELDS[$this->currentRecordType]);
 
         if ($this->removeAbandonedRecords) {
             if ($this->dryRun) {
@@ -214,7 +205,12 @@ class DeployCommand extends Command
             }
         }
 
-        foreach ($backendGroupsConfiguration as $identifier => $settings) {
+        // Backend group:
+        // $subgroupReferences = [];
+
+        foreach ($configuration as $identifier => $settings) {
+            $settings = array_merge($default, $settings);
+
             // Replace variable references:
             array_walk($settings, static function(&$value) use ($variables) {
                 if (isset($variables[$value])) {
@@ -225,55 +221,98 @@ class DeployCommand extends Command
             $settings[self::IDENTIFIER_FIELDS[$this->currentRecordType]] = $identifier;
             $settings['tstamp'] = time();
 
-            if (isset($settings['subgroup'])) {
-                $subgroupReferences[$identifier] = $settings['subgroup'];
-                unset($settings['subgroup']);
-            }
+            // Backend group:
+            // if (isset($settings['subgroup'])) {
+            //     $subgroupReferences[$identifier] = $settings['subgroup'];
+            //     unset($settings['subgroup']);
+            // }
+
+            // Backend user:
+            // if (isset($settings['usergroup'])) {
+            //    array_walk($settings['usergroup'], function(&$value) {
+            //         $value = $this->backendGroups[$value];
+            //     });
+            //     $settings['usergroup'] = implode(',', $settings['usergroup']);
+            // }
 
             $connection = GeneralUtility::makeInstance(ConnectionPool::class)
                 ->getConnectionForTable(self::TABLES[$this->currentRecordType]);
 
-            if (0 < $this->backendGroups[$identifier]) {
-                // Group already exists in database
-                $connection->update(
-                    'be_groups', $settings, [self::IDENTIFIER_FIELDS[$this->currentRecordType] => $identifier]
-                );
+            if (in_array(
+                $identifier,
+                $existingIdentifiers,
+                true
+            )) {
+                if (!$this->dryRun) {
+                    $connection->update(
+                        self::TABLES[$this->currentRecordType], $settings,
+                        [self::IDENTIFIER_FIELDS[$this->currentRecordType] => $identifier]
+                    );
+                }
+
+                $updatedRecords++;
             } else {
-                $settings['crdate'] = $settings['tstamp'];
-                $connection->insert(self::TABLES[$this->currentRecordType], $settings);
-                $this->backendGroups[$identifier] = $connection->lastInsertId(self::TABLES[$this->currentRecordType]);
+                if (!$this->dryRun) {
+                    $settings['crdate'] = $settings['tstamp'];
+                    $connection->insert(self::TABLES[$this->currentRecordType], $settings);
+                }
+
+                $createdRecords++;
+                // Backend group:
+                // $this->backendGroups[$identifier] = $connection->lastInsertId(self::TABLES[$this->currentRecordType]);
             }
         }
 
-        // Add subgroup information after collecting all UIDs:
-        foreach ($subgroupReferences as $identifier => $subgroupReference) {
-            // Replace title with actual UID:
-            array_walk($subgroupReference, function(&$value) {
-                $value = $this->backendGroups[$value];
-            });
+        // Backend group:
+        // foreach ($existingRecords as $existingRecord) {
+        //     $this->backendGroups[$existingRecord[self::IDENTIFIER_FIELDS[$this->currentRecordType]]] = $existingRecord['uid'];
+        // }
+        // // Add subgroup information after collecting all UIDs:
+        // foreach ($subgroupReferences as $identifier => $subgroupReference) {
+        //     // Replace title with actual UID:
+        //     array_walk($subgroupReference, function(&$value) {
+        //         $value = $this->backendGroups[$value];
+        //     });
+        //     $connection = GeneralUtility::makeInstance(ConnectionPool::class)
+        //         ->getConnectionForTable(self::TABLES[$this->currentRecordType]);
+        //     $connection->update(
+        //         self::TABLES[$this->currentRecordType],
+        //         ['subgroup' => implode(',', $subgroupReference)],
+        //         [self::IDENTIFIER_FIELDS[$this->currentRecordType] => $identifier]
+        //     );
+        // }
 
-            $connection = GeneralUtility::makeInstance(ConnectionPool::class)
-                ->getConnectionForTable(self::TABLES[$this->currentRecordType]);
-            $connection->update(
-                self::TABLES[$this->currentRecordType],
-                ['subgroup' => implode(',', $subgroupReference)],
-                [self::IDENTIFIER_FIELDS[$this->currentRecordType] => $identifier]
-            );
+        if ($this->dryRun) {
+            $this->io->info($createdRecords . ' records would be created.');
+            $this->io->info($updatedRecords . ' records would be updated.');
+        } else {
+            $this->io->info($createdRecords . ' records have been created.');
+            $this->io->info($updatedRecords . ' records have been updated.');
         }
+    }
+
+    private function extractValue(array &$configuration, string $key): array
+    {
+        if (isset($configuration[$key])) {
+            if (is_array($configuration[$key])) {
+                $extractedValue = $configuration[$key];
+            }
+
+            unset($configuration[$key]);
+        }
+
+        return $extractedValue ?? [];
     }
 
     /**
      * @throws Exception
      */
-    private function deployBackendUsers(array $backendUsersConfiguration): void
+    private function getExistingRecords(array $identifiers): array
     {
-        $this->currentRecordType = self::RECORD_TYPES['BACKEND_USER'];
-        $variables = $this->extractVariables($backendUsersConfiguration);
-        $identifiers = array_keys($backendUsersConfiguration);
-
         $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
             ->getQueryBuilderForTable(self::TABLES[$this->currentRecordType]);
-        $existingRecords = $queryBuilder->select(self::IDENTIFIER_FIELDS[$this->currentRecordType])
+
+        return $queryBuilder->select(self::IDENTIFIER_FIELDS[$this->currentRecordType], 'uid')
             ->from(self::TABLES[$this->currentRecordType])
             ->where(
                 $queryBuilder->expr()
@@ -287,60 +326,6 @@ class DeployCommand extends Command
             )
             ->executeQuery()
             ->fetchAllAssociative();
-
-        if ($this->removeAbandonedRecords) {
-            if ($this->dryRun) {
-                $this->io->info($this->countAbandonedRecords($identifiers) . ' records would be removed.');
-            } else {
-                $this->io->info($this->removeAbandonedRecords($identifiers) . ' records have been removed.');
-            }
-        }
-
-        foreach ($backendUsersConfiguration as $identifier => $settings) {
-            // Replace variable references:
-            array_walk($settings, static function(&$value) use ($variables) {
-                if (isset($variables[$value])) {
-                    $value = $variables[$value];
-                }
-            });
-
-            $settings[self::IDENTIFIER_FIELDS[$this->currentRecordType]] = $identifier;
-            $settings['tstamp'] = time();
-
-            if (isset($settings['usergroup'])) {
-                array_walk($settings['usergroup'], function(&$value) {
-                    $value = $this->backendGroups[$value];
-                });
-                $settings['usergroup'] = implode(',', $settings['usergroup']);
-            }
-
-            $connection = GeneralUtility::makeInstance(ConnectionPool::class)
-                ->getConnectionForTable(self::TABLES[$this->currentRecordType]);
-
-            if (in_array($identifier, $existingRecords, true)) {
-                // User already exists in database.
-                $connection->update(
-                    self::TABLES[$this->currentRecordType], $settings,
-                    [self::IDENTIFIER_FIELDS[$this->currentRecordType] => $identifier]
-                );
-            } else {
-                $settings['crdate'] = $settings['tstamp'];
-                $connection->insert(self::TABLES[$this->currentRecordType], $settings);
-            }
-        }
-    }
-
-    private function extractVariables(array &$tableConfiguration): array
-    {
-        if (isset($tableConfiguration['_variables'])) {
-            if (is_array($tableConfiguration['_variables'])) {
-                $variables = $tableConfiguration['_variables'];
-            }
-
-            unset($tableConfiguration['_variables']);
-        }
-
-        return $variables ?? [];
     }
 
     /**
