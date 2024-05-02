@@ -39,7 +39,7 @@ use function is_array;
  *
  *         },
  *         "Advanced editor": {
- *             "subgroup": ["basic"]
+ *             "subgroup": ["Basic editor"]
  *         }
  *         "Basic editor": {
  *         }
@@ -49,11 +49,11 @@ use function is_array;
  *             "company": "Doe Inc."
  *         },
  *         "jadoe": {
- *             "groups": ["basic"],
+ *             "groups": ["Basic editor"],
  *             "name": "Jane Doe"
  *         },
  *         "jodoe": {
- *             "groups": ["advanced"],
+ *             "groups": ["Advanced editor"],
  *             "name": "John Doe"
  *         }
  *     }
@@ -205,8 +205,9 @@ class DeployCommand extends Command
             }
         }
 
-        // Backend group:
-        // $subgroupReferences = [];
+        if (self::RECORD_TYPES['BACKEND_GROUP'] === $this->currentRecordType) {
+            $subgroupReferences = [];
+        }
 
         foreach ($configuration as $identifier => $settings) {
             $settings = array_merge($default, $settings);
@@ -221,19 +222,14 @@ class DeployCommand extends Command
             $settings[self::IDENTIFIER_FIELDS[$this->currentRecordType]] = $identifier;
             $settings['tstamp'] = time();
 
-            // Backend group:
-            // if (isset($settings['subgroup'])) {
-            //     $subgroupReferences[$identifier] = $settings['subgroup'];
-            //     unset($settings['subgroup']);
-            // }
-
-            // Backend user:
-            // if (isset($settings['usergroup'])) {
-            //    array_walk($settings['usergroup'], function(&$value) {
-            //         $value = $this->backendGroups[$value];
-            //     });
-            //     $settings['usergroup'] = implode(',', $settings['usergroup']);
-            // }
+            switch ($this->currentRecordType) {
+                case self::RECORD_TYPES['BACKEND_GROUP']:
+                    $this->prepareBackendSubgroups($identifier, $settings, $subgroupReferences);
+                    break;
+                case self::RECORD_TYPES['BACKEND_USER']:
+                    $this->processBackendUserGroups($settings);
+                    break;
+            }
 
             $connection = GeneralUtility::makeInstance(ConnectionPool::class)
                 ->getConnectionForTable(self::TABLES[$this->currentRecordType]);
@@ -255,32 +251,21 @@ class DeployCommand extends Command
                 if (!$this->dryRun) {
                     $settings['crdate'] = $settings['tstamp'];
                     $connection->insert(self::TABLES[$this->currentRecordType], $settings);
+
+                    if (self::RECORD_TYPES['BACKEND_GROUP'] === $this->currentRecordType) {
+                        $this->backendGroups[$identifier] = $connection->lastInsertId(
+                            self::TABLES[$this->currentRecordType]
+                        );
+                    }
                 }
 
                 $createdRecords++;
-                // Backend group:
-                // $this->backendGroups[$identifier] = $connection->lastInsertId(self::TABLES[$this->currentRecordType]);
             }
         }
 
-        // Backend group:
-        // foreach ($existingRecords as $existingRecord) {
-        //     $this->backendGroups[$existingRecord[self::IDENTIFIER_FIELDS[$this->currentRecordType]]] = $existingRecord['uid'];
-        // }
-        // // Add subgroup information after collecting all UIDs:
-        // foreach ($subgroupReferences as $identifier => $subgroupReference) {
-        //     // Replace title with actual UID:
-        //     array_walk($subgroupReference, function(&$value) {
-        //         $value = $this->backendGroups[$value];
-        //     });
-        //     $connection = GeneralUtility::makeInstance(ConnectionPool::class)
-        //         ->getConnectionForTable(self::TABLES[$this->currentRecordType]);
-        //     $connection->update(
-        //         self::TABLES[$this->currentRecordType],
-        //         ['subgroup' => implode(',', $subgroupReference)],
-        //         [self::IDENTIFIER_FIELDS[$this->currentRecordType] => $identifier]
-        //     );
-        // }
+        if (self::RECORD_TYPES['BACKEND_GROUP'] === $this->currentRecordType) {
+            $this->processBackendSubgroups($existingRecords, $subgroupReferences);
+        }
 
         if ($this->dryRun) {
             $this->io->info($createdRecords . ' records would be created.');
@@ -338,6 +323,46 @@ class DeployCommand extends Command
         }
 
         return $configuration;
+    }
+
+    private function prepareBackendSubgroups(string $identifier, array &$settings, array &$subgroupReferences): void
+    {
+        if (isset($settings['subgroup'])) {
+            $subgroupReferences[$identifier] = $settings['subgroup'];
+            unset($settings['subgroup']);
+        }
+    }
+
+    private function processBackendSubgroups(array $existingRecords, array $subgroupReferences): void
+    {
+        foreach ($existingRecords as $existingRecord) {
+            $this->backendGroups[$existingRecord[self::IDENTIFIER_FIELDS[$this->currentRecordType]]] = $existingRecord['uid'];
+        }
+
+        // Add subgroup information after collecting all UIDs:
+        foreach ($subgroupReferences as $identifier => $subgroupReference) {
+            // Replace title with actual UID:
+            array_walk($subgroupReference, function(&$value) {
+                $value = $this->backendGroups[$value];
+            });
+            $connection = GeneralUtility::makeInstance(ConnectionPool::class)
+                ->getConnectionForTable(self::TABLES[$this->currentRecordType]);
+            $connection->update(
+                self::TABLES[$this->currentRecordType],
+                ['subgroup' => implode(',', $subgroupReference)],
+                [self::IDENTIFIER_FIELDS[$this->currentRecordType] => $identifier]
+            );
+        }
+    }
+
+    private function processBackendUserGroups(array &$settings): void
+    {
+        if (isset($settings['usergroup'])) {
+            array_walk($settings['usergroup'], function(&$value) {
+                $value = $this->backendGroups[$value] ?? '';
+            });
+            $settings['usergroup'] = implode(',', $settings['usergroup']);
+        }
     }
 
     private function removeAbandonedRecords(array $existingIdentifiers): int
