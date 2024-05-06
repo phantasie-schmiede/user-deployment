@@ -73,8 +73,8 @@ class DeployCommand extends Command
     protected const RECORD_TYPES      = [
         'BACKEND_GROUP'  => 'BackendGroup',
         'BACKEND_USER'   => 'BackendUser',
-        'FRONTEND_GROUP' => 'FrontendendGroup',
-        'FRONTEND_USER'  => 'FrontendendUser',
+        'FRONTEND_GROUP' => 'FrontendGroup',
+        'FRONTEND_USER'  => 'FrontendUser',
     ];
     protected const TABLES            = [
         self::RECORD_TYPES['BACKEND_GROUP']  => 'be_groups',
@@ -83,10 +83,9 @@ class DeployCommand extends Command
         self::RECORD_TYPES['FRONTEND_USER']  => 'fe_users',
     ];
 
-    protected array        $backendGroups          = [];
     protected string       $currentRecordType      = '';
     protected bool         $dryRun                 = false;
-    protected array        $frontendGroups         = [];
+    protected array        $groups                 = [];
     protected SymfonyStyle $io;
     protected bool         $removeAbandonedRecords = false;
 
@@ -205,7 +204,14 @@ class DeployCommand extends Command
             }
         }
 
-        if (self::RECORD_TYPES['BACKEND_GROUP'] === $this->currentRecordType) {
+        if (in_array(
+            $this->currentRecordType,
+            [
+                self::RECORD_TYPES['BACKEND_GROUP'],
+                self::RECORD_TYPES['FRONTEND_GROUP'],
+            ],
+            true
+        )) {
             $subgroupReferences = [];
         }
 
@@ -224,9 +230,11 @@ class DeployCommand extends Command
 
             switch ($this->currentRecordType) {
                 case self::RECORD_TYPES['BACKEND_GROUP']:
+                case self::RECORD_TYPES['FRONTEND_GROUP']:
                     $this->prepareBackendSubgroups($identifier, $settings, $subgroupReferences);
                     break;
                 case self::RECORD_TYPES['BACKEND_USER']:
+                case self::RECORD_TYPES['FRONTEND_USER']:
                     $this->processBackendUserGroups($settings);
                     break;
             }
@@ -252,8 +260,15 @@ class DeployCommand extends Command
                     $settings['crdate'] = $settings['tstamp'];
                     $connection->insert(self::TABLES[$this->currentRecordType], $settings);
 
-                    if (self::RECORD_TYPES['BACKEND_GROUP'] === $this->currentRecordType) {
-                        $this->backendGroups[$identifier] = $connection->lastInsertId(
+                    if (in_array(
+                        $this->currentRecordType,
+                        [
+                            self::RECORD_TYPES['BACKEND_GROUP'],
+                            self::RECORD_TYPES['FRONTEND_GROUP'],
+                        ],
+                        true
+                    )) {
+                        $this->groups[$this->currentRecordType][$identifier] = $connection->lastInsertId(
                             self::TABLES[$this->currentRecordType]
                         );
                     }
@@ -263,7 +278,14 @@ class DeployCommand extends Command
             }
         }
 
-        if (self::RECORD_TYPES['BACKEND_GROUP'] === $this->currentRecordType) {
+        if (in_array(
+            $this->currentRecordType,
+            [
+                self::RECORD_TYPES['BACKEND_GROUP'],
+                self::RECORD_TYPES['FRONTEND_GROUP'],
+            ],
+            true
+        )) {
             $this->processBackendSubgroups($existingRecords, $subgroupReferences);
         }
 
@@ -336,14 +358,14 @@ class DeployCommand extends Command
     private function processBackendSubgroups(array $existingRecords, array $subgroupReferences): void
     {
         foreach ($existingRecords as $existingRecord) {
-            $this->backendGroups[$existingRecord[self::IDENTIFIER_FIELDS[$this->currentRecordType]]] = $existingRecord['uid'];
+            $this->groups[$this->currentRecordType][$existingRecord[self::IDENTIFIER_FIELDS[$this->currentRecordType]]] = $existingRecord['uid'];
         }
 
         // Add subgroup information after collecting all UIDs:
         foreach ($subgroupReferences as $identifier => $subgroupReference) {
             // Replace title with actual UID:
             array_walk($subgroupReference, function(&$value) {
-                $value = $this->backendGroups[$value];
+                $value = $this->groups[$this->currentRecordType][$value];
             });
             $connection = GeneralUtility::makeInstance(ConnectionPool::class)
                 ->getConnectionForTable(self::TABLES[$this->currentRecordType]);
@@ -359,7 +381,7 @@ class DeployCommand extends Command
     {
         if (isset($settings['usergroup'])) {
             array_walk($settings['usergroup'], function(&$value) {
-                $value = $this->backendGroups[$value] ?? '';
+                $value = $this->groups[$this->currentRecordType][$value] ?? '';
             });
             $settings['usergroup'] = implode(',', $settings['usergroup']);
         }
