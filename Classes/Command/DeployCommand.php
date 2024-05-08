@@ -29,35 +29,34 @@ use function is_array;
  * Class DeployCommand
  *
  * This command imports a JSON file containing the configuration for users and user groups in both backend and frontend.
- * Example:
+ * An example configuration can be found here: EXT:psb_user_deployment/Configuration/exampleConfiguration.json
+ * The command can be executed like this:
+ * ./vendor/bin/typo3 psbUserDeployment:deploy ./path/to/your/configuration.json
+ *
+ * It can be executed in dry-run mode by adding --dry-run or -d:
+ * ./vendor/bin/typo3 psbUserDeployment:deploy /path/to/your/configuration.json --dry-run
+ *
+ * If data records that do not exist in the configuration are to be deleted, add --remove or -rm to the command:
+ * ./vendor/bin/typo3 psbUserDeployment:deploy /path/to/your/configuration.json --remove
+ *
+ * Both options can be combined. The order of the options does not matter.
+ *
+ * You can split your configuration into several files if you provide a JSON file with the following structure:
  * {
- *     "be_groups: {
- *         "_default": {
- *
- *         },
- *         "_variables": {
- *
- *         },
- *         "Advanced editor": {
- *             "subgroup": ["Basic editor"]
- *         }
- *         "Basic editor": {
- *         }
- *     },
- *     "be_users": {
- *         "_default": {
- *             "company": "Doe Inc."
- *         },
- *         "jadoe": {
- *             "groups": ["Basic editor"],
- *             "name": "Jane Doe"
- *         },
- *         "jodoe": {
- *             "groups": ["Advanced editor"],
- *             "name": "John Doe"
- *         }
- *     }
+ *     "files": [
+ *         "/path/to/your/configuration1.json",
+ *         "/path/to/your/configuration2.json"
+ *     ]
  * }
+ *
+ * The command will then import all files in the given order. The files are merged into one configuration. If the same
+ * record is defined in multiple files, the last definition will be used.
+ *
+ * The configuration considers two special keys inside each table section:
+ * - "_default": This key can be used to define default values for all records of that type.
+ * - "_variables": This key can be used to define variables which can be used in the configuration. The variables are
+ *                 replaced by their actual values. The variables can be used in the configuration by using the variable
+ *                 name as value.
  *
  * @package PSB\PsbUserDeployment\Command
  */
@@ -91,7 +90,7 @@ class DeployCommand extends Command
 
     protected function configure(): void
     {
-        $this->setHelp('This command does nothing. It always succeeds.')
+        $this->setHelp('This command imports a JSON file containing the configuration for users and user groups in both backend and frontend.')
             ->addArgument(
                 'file',
                 InputArgument::REQUIRED,
