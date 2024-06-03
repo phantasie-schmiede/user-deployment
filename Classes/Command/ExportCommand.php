@@ -15,7 +15,7 @@ declare(strict_types=1);
  */
 namespace PSB\PsbUserDeployment\Command;
 
-use Exception;
+use Doctrine\DBAL\Exception;
 use PSB\PsbUserDeployment\Enum\RecordTypes;
 use RuntimeException;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -89,7 +89,7 @@ class ExportCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $this->io = new SymfonyStyle($input, $output);
-        $this->storage_path = $input->getArgument('path');
+        $this->storage_path = $this->cleanupPath($input->getArgument('path'));
         $this->context = $input->getArgument('context');
 
         if ('BE' !== $this->context) {
@@ -99,23 +99,43 @@ class ExportCommand extends Command
         $this->io->writeln('Exporting users and user groups to ' . $this->storage_path . 'export.json');
 
         try {
-            foreach (RecordTypes::strictlyOrderedCases() as $recordType) {
+            foreach (RecordTypes::strictlyOrderedCases($this->context) as $recordType) {
                 $this->export($recordType);
             }
 
             $this->postProcess();
 
-            file_put_contents($this->storage_path . 'export.json',
+            file_put_contents($this->storage_path . '\export.json',
                 json_encode($this->data, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT));
 
             return Command::SUCCESS;
-        } catch (Throwable) {
-            $this->io->error('An error occurred during the export process.');
+        } catch (Throwable $e) {
+            $this->io->error('An error occurred during the export process: ' . $e->getMessage());
 
             return Command::FAILURE;
         }
     }
 
+    private function cleanupPath(mixed $path): string
+    {
+        if (!is_scalar($path)) {
+            throw new RuntimeException('Path must be a scalar value.');
+        }
+
+        if (str_starts_with($path, '/') || str_starts_with($path, '\\')) {
+            $path = substr($path, 1);
+        }
+
+        if (str_ends_with($path, '/') || str_ends_with($path, '\\')) {
+            $path = substr($path, 0, -1);
+        }
+
+        return $path;
+    }
+
+    /**
+     * @throws Exception
+     */
     private function export(RecordTypes $recordType): void
     {
         $this->io->writeln('Exporting ' . $recordType->value . ' records');
@@ -125,12 +145,10 @@ class ExportCommand extends Command
         // Grab values from database
         $queryBuilder = $this->getQueryBuilder($recordType);
 
-        $queryBuilder = $this->getQueryBuilder($recordType)
+        $data = $this->getQueryBuilder($recordType)
             ->select(...self::RELEVANT_FIELDS[RecordTypes::getTable($recordType)])
             ->from(RecordTypes::getTable($recordType))
-            ->where($queryBuilder->expr()->eq('deleted', 0));
-
-        $data = $queryBuilder->executeQuery()->fetchAllAssociative();
+            ->where($queryBuilder->expr()->eq('deleted', 0))->executeQuery()->fetchAllAssociative();
 
         $this->io->writeln('Exporting ' . count($data) . ' ' . $recordType->value . ' records');
 
@@ -169,7 +187,7 @@ class ExportCommand extends Command
                 'TSconfig'         => '',
                 'mfa'              => null,
             ],
-            RecordTypes::FRONTEND_GROUP, RecordTypes::FRONTEND_USER => throw new Exception('To be implemented'),
+            RecordTypes::FRONTEND_GROUP, RecordTypes::FRONTEND_USER => throw new RuntimeException('To be implemented'),
         };
     }
 
@@ -196,6 +214,9 @@ class ExportCommand extends Command
         return $this->data[$recordType->value]['_default'][$key] === $value;
     }
 
+    /**
+     * @throws Exception
+     */
     private function postProcess(): void
     {
         // @TODO: What do we do, if one of the referenced records is deleted?
@@ -273,7 +294,7 @@ class ExportCommand extends Command
 
             foreach ($uidList as $number => $usergroupUid) {
                 if (!array_key_exists($usergroupUid, $uidToTitleMap)) {
-                    $this->io->warning('Usergroup ' . $usergroupUid . ' of user ' . $title . ' does not exist.');
+                    $this->io->warning('Usergroup ' . $usergroupUid . ' of user ' . $title . ' does not exist. It will not be included in the export.');
                     unset($uidList[$number]);
 
                     continue;
