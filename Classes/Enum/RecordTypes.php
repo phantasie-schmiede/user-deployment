@@ -57,15 +57,15 @@ enum RecordTypes: string
     {
         if ('BE' === $context) {
             return [
-                self::BACKEND_GROUP,
-                self::BACKEND_USER,
+                0 => self::BACKEND_GROUP,
+                1 => self::BACKEND_USER,
             ];
         }
 
         if ('FE' === $context) {
             return [
-                self::FRONTEND_GROUP,
-                self::FRONTEND_USER,
+                0 => self::FRONTEND_GROUP,
+                1 => self::FRONTEND_USER,
             ];
         }
 
