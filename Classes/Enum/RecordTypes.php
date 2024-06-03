@@ -50,13 +50,30 @@ enum RecordTypes: string
         };
     }
 
-    public static function strictlyOrderedCases(): array
+    /**
+     * @return RecordTypes[]
+     */
+    public static function strictlyOrderedCases(?string $context = null): array
     {
+        if ('BE' === $context) {
+            return [
+                self::BACKEND_GROUP,
+                self::BACKEND_USER,
+            ];
+        }
+
+        if ('FE' === $context) {
+            return [
+                self::FRONTEND_GROUP,
+                self::FRONTEND_USER,
+            ];
+        }
+
         return [
             0 => self::BACKEND_GROUP,
-         //   2 => self::FRONTEND_GROUP,
+            2 => self::FRONTEND_GROUP,
             1 => self::BACKEND_USER,
-         //   3 => self::FRONTEND_USER,
+            3 => self::FRONTEND_USER,
         ];
     }
 }

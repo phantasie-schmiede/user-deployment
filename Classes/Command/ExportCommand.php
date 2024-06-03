@@ -15,21 +15,24 @@ declare(strict_types=1);
  */
 namespace PSB\PsbUserDeployment\Command;
 
-use PDO;
+use Exception;
 use PSB\PsbUserDeployment\Enum\RecordTypes;
+use RuntimeException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use TYPO3\CMS\Core\Database\Connection;
+use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
-#[AsCommand(name: 'psbUserDeployment:export', description: 'dsafs')]
+#[AsCommand(name: 'psbUserDeployment:export', description: 'Exports the user and group configuration to a JSON file.')]
 class ExportCommand extends Command
 {
+    // For each affected table, we define the fields that we want to export.
     protected const RELEVANT_FIELDS = [
         'be_users'  => [
             'username',
@@ -41,7 +44,7 @@ class ExportCommand extends Command
             'realName',
             // 'uc', do we need this? disabled for readability of JSON.
             'file_permissions',
-            'TSconfig', // This is only used for TKelm and MVossen?
+            'TSconfig', // This is only used for two entries?
             'mfa',
         ],
         'be_groups' => [
@@ -66,30 +69,54 @@ class ExportCommand extends Command
             'availableWidgets',
         ],
     ];
-
+    protected string $context = '';
+    /**
+     * @var array<string, array<string, array<string, mixed>>>
+     */
     protected array        $data         = [];
     protected SymfonyStyle $io;
-    protected string       $storage_path = 'var/export/psb_user_deployment/';
+    protected string       $storage_path = '';
+
+    protected function configure(): void
+    {
+        $this->setHelp('This command exports the TYPO3 Tables be_users, be_groups, fe_users and fe_groups to a JSON file.')
+            ->addArgument('path', InputArgument::REQUIRED,
+                'The relative path to a directory in which the generated configuration File should be stored.')
+            ->addArgument('context', InputArgument::OPTIONAL,
+                'The context for which Users and Groups should be exported. Enter "BE" for Backend or "FE" for Frontend (not implemented yet). Leave this empty to export both.');
+    }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $this->io = new SymfonyStyle($input, $output);
+        $this->storage_path = $input->getArgument('path');
+        $this->context = $input->getArgument('context');
 
-        $this->io->writeln('Exporting users and user groups!!');
-
-        foreach (RecordTypes::strictlyOrderedCases() as $recordType) {
-            $this->export($recordType);
+        if ('BE' !== $this->context) {
+            throw new RuntimeException('Only Backend export is implemented at the moment.');
         }
 
-        $this->postProcess();
+        $this->io->writeln('Exporting users and user groups to ' . $this->storage_path . 'export.json');
 
-        file_put_contents($this->storage_path . 'export.json',
-            json_encode($this->data, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT));
+        try {
+            foreach (RecordTypes::strictlyOrderedCases() as $recordType) {
+                $this->export($recordType);
+            }
 
-        return Command::SUCCESS;
+            $this->postProcess();
+
+            file_put_contents($this->storage_path . 'export.json',
+                json_encode($this->data, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT));
+
+            return Command::SUCCESS;
+        } catch (Throwable) {
+            $this->io->error('An error occurred during the export process.');
+
+            return Command::FAILURE;
+        }
     }
 
-    private function export(RecordTypes $recordType): int
+    private function export(RecordTypes $recordType): void
     {
         $this->io->writeln('Exporting ' . $recordType->value . ' records');
 
@@ -110,8 +137,6 @@ class ExportCommand extends Command
         foreach ($data as $record) {
             $this->processData($recordType, $record);
         }
-
-        return Command::SUCCESS;
     }
 
     private function fillDefaultValues(RecordTypes $recordType): void
@@ -144,8 +169,7 @@ class ExportCommand extends Command
                 'TSconfig'         => '',
                 'mfa'              => null,
             ],
-            RecordTypes::FRONTEND_GROUP => throw new \Exception('To be implemented'),
-            RecordTypes::FRONTEND_USER => throw new \Exception('To be implemented'),
+            RecordTypes::FRONTEND_GROUP, RecordTypes::FRONTEND_USER => throw new Exception('To be implemented'),
         };
     }
 
@@ -157,6 +181,19 @@ class ExportCommand extends Command
         $queryBuilder->getRestrictions()->removeAll();
 
         return $queryBuilder;
+    }
+
+    private function isDefaultValue(RecordTypes $recordType, string $key, mixed $value): bool
+    {
+        if (!array_key_exists($key, $this->data[$recordType->value]['_default'])) {
+            return false;
+        }
+
+        if (is_scalar($this->data[$recordType->value]['_default'][$key]) && is_scalar($value)) {
+            return (string)$this->data[$recordType->value]['_default'][$key] === (string)$value;
+        }
+
+        return $this->data[$recordType->value]['_default'][$key] === $value;
     }
 
     private function postProcess(): void
@@ -182,6 +219,12 @@ class ExportCommand extends Command
         $this->resolveCommaSeparatedReferences(RecordTypes::BACKEND_USER, 'usergroup', $backendGroupsByTitleAndUid);
     }
 
+    /**
+     * @param RecordTypes          $recordType
+     * @param array<string, mixed> $data
+     *
+     * @return void
+     */
     private function processData(RecordTypes $recordType, array $data): void
     {
         $identifierField = RecordTypes::getIdentifierField($recordType);
@@ -190,8 +233,7 @@ class ExportCommand extends Command
         // Remove values that are the same as their default values.
         foreach ($cleanData as $key => $value) {
             // Convert to string, because we do not care for the difference between empty string and null.
-            if (array_key_exists($key,
-                    $this->data[$recordType->value]['_default']) && (string)$this->data[$recordType->value]['_default'][$key] === (string)$value) {
+            if ($this->isDefaultValue($recordType, $key, $value)) {
                 unset($cleanData[$key]);
             }
         }
@@ -200,6 +242,13 @@ class ExportCommand extends Command
         $this->data[$recordType->value][$data[$identifierField]] = $cleanData;
     }
 
+    /**
+     * @param RecordTypes        $recordType
+     * @param string             $fieldname
+     * @param array<int, string> $uidToTitleMap
+     *
+     * @return void
+     */
     private function resolveCommaSeparatedReferences(
         RecordTypes $recordType,
         string $fieldname,
@@ -214,18 +263,12 @@ class ExportCommand extends Command
                 continue;
             }
 
-            if (empty($record[$fieldname])) {
+            if (empty($record[$fieldname]) || !is_string($record[$fieldname])) {
                 $this->data[RecordTypes::BACKEND_USER->value][$title][$fieldname] = [];
                 continue;
             }
 
-            try {
-                $uidList = explode(',', $record[$fieldname]);
-            } catch (\Throwable $e) {
-                $this->io->warning('Error while processing ' . $recordType->value . ' ' . $title . ' ' . $fieldname . ': ' . $e->getMessage());
-                continue;
-            }
-
+            $uidList = explode(',', $record[$fieldname]);
             $this->data[$recordType->value][$title][$fieldname] = [];
 
             foreach ($uidList as $number => $usergroupUid) {
