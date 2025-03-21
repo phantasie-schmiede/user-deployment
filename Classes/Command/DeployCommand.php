@@ -13,6 +13,7 @@ namespace PSB\PsbUserDeployment\Command;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Exception;
 use JsonException;
+use PSB\PsbUserDeployment\Enum\RecordType;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -29,7 +30,7 @@ use function is_array;
  * Class DeployCommand
  *
  * This command imports a JSON file containing the configuration for users and user groups in both backend and frontend.
- * An example configuration can be found here: EXT:psb_user_deployment/Configuration/exampleConfiguration.json
+ * An example configuration can be found here: EXT:psb_user_deployment/Documentation/exampleConfiguration.json
  * The command can be executed like this:
  * ./vendor/bin/typo3 psbUserDeployment:deploy ./path/to/your/configuration.json
  *
@@ -56,33 +57,28 @@ use function is_array;
  * - "_default": This key can be used to define default values for all records of that type.
  * - "_variables": This key can be used to define variables which can be used in the configuration. The variables are
  *                 replaced by their actual values. The variables can be used in the configuration by using the variable
- *                 name as value.
+ *                 name as value. Make sure to choose unique variable names to avoid conflicts, e.g. by using a special
+ *                 format like "@variableName".
+ * Example:
+ * {
+ *    "be_groups": {
+ *       "_variables": {
+ *          "@subgroup": "subgroup1,subgroup2"
+ *      },
+ *     "group1": {
+ *        "title": "Group 1",
+ *       "subgroup": "@subgroup"
+ *    }
+ * }
+ *
+ * The command will replace "$subgroup" with "subgroup1,subgroup2".
  *
  * @package PSB\PsbUserDeployment\Command
  */
 #[AsCommand(name: 'psbUserDeployment:deploy', description: 'This command creates/deletes/updates users and user groups depending on configuration.')]
 class DeployCommand extends Command
 {
-    protected const IDENTIFIER_FIELDS = [
-        self::RECORD_TYPES['BACKEND_GROUP']  => 'title',
-        self::RECORD_TYPES['BACKEND_USER']   => 'username',
-        self::RECORD_TYPES['FRONTEND_GROUP'] => 'title',
-        self::RECORD_TYPES['FRONTEND_USER']  => 'username',
-    ];
-    protected const RECORD_TYPES      = [
-        'BACKEND_GROUP'  => 'BackendGroup',
-        'BACKEND_USER'   => 'BackendUser',
-        'FRONTEND_GROUP' => 'FrontendGroup',
-        'FRONTEND_USER'  => 'FrontendUser',
-    ];
-    protected const TABLES            = [
-        self::RECORD_TYPES['BACKEND_GROUP']  => 'be_groups',
-        self::RECORD_TYPES['BACKEND_USER']   => 'be_users',
-        self::RECORD_TYPES['FRONTEND_GROUP'] => 'fe_groups',
-        self::RECORD_TYPES['FRONTEND_USER']  => 'fe_users',
-    ];
-
-    protected string       $currentRecordType      = '';
+    protected RecordType   $currentRecordType;
     protected bool         $dryRun                 = false;
     protected array        $groups                 = [];
     protected SymfonyStyle $io;
@@ -91,23 +87,11 @@ class DeployCommand extends Command
     protected function configure(): void
     {
         $this->setHelp('This command imports a JSON file containing the configuration for users and user groups in both backend and frontend.')
-            ->addArgument(
-                'file',
-                InputArgument::REQUIRED,
-                'Provide the source which should be deployed.',
-            )
-            ->addOption(
-                'dry-run',
-                'd',
-                InputOption::VALUE_NONE,
-                'Don\'t make changes to the database, but show number of affected records only. You can use --dry-run or -d when running this command.',
-            )
-            ->addOption(
-                'remove',
-                'rm',
-                InputOption::VALUE_NONE,
-                'Delete records from the database which are not included in the given configuration file. You can use --remove or -rm when running this command.',
-            );
+            ->addArgument('file', InputArgument::REQUIRED, 'Provide the source which should be deployed.')
+            ->addOption('dry-run', 'd', InputOption::VALUE_NONE,
+                'Don\'t make changes to the database, but show number of affected records only. You can use --dry-run or -d when running this command.',)
+            ->addOption('remove', 'rm', InputOption::VALUE_NONE,
+                'Delete records from the database which are not included in the given configuration file. You can use --remove or -rm when running this command.',);
     }
 
     /**
@@ -127,20 +111,12 @@ class DeployCommand extends Command
             $configuration = $this->importConfigurationFiles($configuration);
         }
 
-        if (!empty($configuration['be_groups']) && is_array($configuration['be_groups'])) {
-            $this->deploy($configuration['be_groups'], self::RECORD_TYPES['BACKEND_GROUP']);
-        }
+        foreach (RecordType::cases() as $recordType) {
+            $tableName = $recordType->getTable();
 
-        if (!empty($configuration['be_users']) && is_array($configuration['be_users'])) {
-            $this->deploy($configuration['be_users'], self::RECORD_TYPES['BACKEND_USER']);
-        }
-
-        if (!empty($configuration['fe_groups']) && is_array($configuration['fe_groups'])) {
-            $this->deploy($configuration['fe_groups'], self::RECORD_TYPES['FRONTEND_GROUP']);
-        }
-
-        if (!empty($configuration['fe_users']) && is_array($configuration['fe_users'])) {
-            $this->deploy($configuration['fe_users'], self::RECORD_TYPES['FRONTEND_USER']);
+            if (!empty($configuration[$tableName]) && is_array($configuration[$tableName])) {
+                $this->deploy($configuration[$tableName], $recordType);
+            }
         }
 
         return Command::SUCCESS;
@@ -149,24 +125,16 @@ class DeployCommand extends Command
     /**
      * @throws Exception
      */
-    private function countAbandonedRecords(array $groupNames): int
+    private function countAbandonedRecords(string ...$existingIdentifiers): int
     {
-        $table = self::TABLES[$this->currentRecordType];
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getQueryBuilderForTable($table);
+        $table = $this->currentRecordType->getTable();
+        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
 
         return $queryBuilder->select('COUNT(*)')
             ->from($table)
-            ->where(
-                $queryBuilder->expr()
-                    ->notIn(
-                        self::IDENTIFIER_FIELDS[$this->currentRecordType],
-                        $queryBuilder->createNamedParameter(
-                            $groupNames,
-                            ArrayParameterType::STRING
-                        )
-                    )
-            )
+            ->where($queryBuilder->expr()
+                ->notIn($this->currentRecordType->getIdentifierField(),
+                    $queryBuilder->createNamedParameter($existingIdentifiers, ArrayParameterType::STRING)))
             ->executeQuery()
             ->fetchOne();
     }
@@ -182,9 +150,9 @@ class DeployCommand extends Command
     /**
      * @throws Exception
      */
-    private function deploy(array $configuration, string $currentRecordType): void
+    private function deploy(array $configuration, RecordType $recordType): void
     {
-        $this->currentRecordType = $currentRecordType;
+        $this->currentRecordType = $recordType;
         $createdRecords = 0;
         $updatedRecords = 0;
 
@@ -193,24 +161,20 @@ class DeployCommand extends Command
         $variables = $this->extractValue($configuration, '_variables');
         $identifiers = array_keys($configuration);
         $existingRecords = $this->getExistingRecords($identifiers);
-        $existingIdentifiers = array_column($existingRecords, self::IDENTIFIER_FIELDS[$this->currentRecordType]);
+        $existingIdentifiers = array_column($existingRecords, $this->currentRecordType->getIdentifierField());
 
         if ($this->removeAbandonedRecords) {
             if ($this->dryRun) {
-                $this->io->info($this->countAbandonedRecords($identifiers) . ' records would be removed.');
+                $this->io->info($this->countAbandonedRecords(...$identifiers) . ' records would be removed.');
             } else {
-                $this->io->info($this->removeAbandonedRecords($identifiers) . ' records have been removed.');
+                $this->io->info($this->removeAbandonedRecords(...$identifiers) . ' records have been removed.');
             }
         }
 
-        if (in_array(
-            $this->currentRecordType,
-            [
-                self::RECORD_TYPES['BACKEND_GROUP'],
-                self::RECORD_TYPES['FRONTEND_GROUP'],
-            ],
-            true
-        )) {
+        if (in_array($this->currentRecordType, [
+            RecordType::BackendGroup,
+            RecordType::FrontendGroup,
+        ], true)) {
             $subgroupReferences = [];
         }
 
@@ -224,52 +188,40 @@ class DeployCommand extends Command
                 }
             });
 
-            $settings[self::IDENTIFIER_FIELDS[$this->currentRecordType]] = $identifier;
+            $settings[$this->currentRecordType->getIdentifierField()] = $identifier;
             $settings['tstamp'] = time();
 
             switch ($this->currentRecordType) {
-                case self::RECORD_TYPES['BACKEND_GROUP']:
-                case self::RECORD_TYPES['FRONTEND_GROUP']:
+                case RecordType::BackendGroup:
+                case RecordType::FrontendGroup:
                     $this->prepareBackendSubgroups($identifier, $settings, $subgroupReferences);
                     break;
-                case self::RECORD_TYPES['BACKEND_USER']:
-                case self::RECORD_TYPES['FRONTEND_USER']:
+                case RecordType::BackendUser:
+                case RecordType::FrontendUser:
                     $this->processBackendUserGroups($settings);
                     break;
             }
 
             $connection = GeneralUtility::makeInstance(ConnectionPool::class)
-                ->getConnectionForTable(self::TABLES[$this->currentRecordType]);
+                ->getConnectionForTable($this->currentRecordType->getTable());
 
-            if (in_array(
-                $identifier,
-                $existingIdentifiers,
-                true
-            )) {
+            if (in_array($identifier, $existingIdentifiers, true)) {
                 if (!$this->dryRun) {
-                    $connection->update(
-                        self::TABLES[$this->currentRecordType], $settings,
-                        [self::IDENTIFIER_FIELDS[$this->currentRecordType] => $identifier]
-                    );
+                    $connection->update($this->currentRecordType->getTable(), $settings,
+                        [$this->currentRecordType->getIdentifierField() => $identifier]);
                 }
 
                 $updatedRecords++;
             } else {
                 if (!$this->dryRun) {
                     $settings['crdate'] = $settings['tstamp'];
-                    $connection->insert(self::TABLES[$this->currentRecordType], $settings);
+                    $connection->insert($this->currentRecordType->getTable(), $settings);
 
-                    if (in_array(
-                        $this->currentRecordType,
-                        [
-                            self::RECORD_TYPES['BACKEND_GROUP'],
-                            self::RECORD_TYPES['FRONTEND_GROUP'],
-                        ],
-                        true
-                    )) {
-                        $this->groups[$this->currentRecordType][$identifier] = $connection->lastInsertId(
-                            self::TABLES[$this->currentRecordType]
-                        );
+                    if (in_array($this->currentRecordType, [
+                        RecordType::BackendGroup,
+                        RecordType::FrontendGroup,
+                    ], true)) {
+                        $this->groups[$this->currentRecordType->getTable()][$identifier] = $connection->lastInsertId($this->currentRecordType->getTable());
                     }
                 }
 
@@ -277,14 +229,10 @@ class DeployCommand extends Command
             }
         }
 
-        if (in_array(
-            $this->currentRecordType,
-            [
-                self::RECORD_TYPES['BACKEND_GROUP'],
-                self::RECORD_TYPES['FRONTEND_GROUP'],
-            ],
-            true
-        )) {
+        if (in_array($this->currentRecordType, [
+            RecordType::BackendGroup,
+            RecordType::FrontendGroup,
+        ], true)) {
             $this->processBackendSubgroups($existingRecords, $subgroupReferences);
         }
 
@@ -315,21 +263,14 @@ class DeployCommand extends Command
      */
     private function getExistingRecords(array $identifiers): array
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getQueryBuilderForTable(self::TABLES[$this->currentRecordType]);
+        $identifierField = $this->currentRecordType->getIdentifierField();
+        $table = $this->currentRecordType->getTable();
+        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
 
-        return $queryBuilder->select(self::IDENTIFIER_FIELDS[$this->currentRecordType], 'uid')
-            ->from(self::TABLES[$this->currentRecordType])
-            ->where(
-                $queryBuilder->expr()
-                    ->in(
-                        self::IDENTIFIER_FIELDS[$this->currentRecordType],
-                        $queryBuilder->createNamedParameter(
-                            $identifiers,
-                            ArrayParameterType::STRING
-                        )
-                    )
-            )
+        return $queryBuilder->select($identifierField, 'uid')
+            ->from($table)
+            ->where($queryBuilder->expr()
+                ->in($identifierField, $queryBuilder->createNamedParameter($identifiers, ArrayParameterType::STRING)))
             ->executeQuery()
             ->fetchAllAssociative();
     }
@@ -357,52 +298,43 @@ class DeployCommand extends Command
     private function processBackendSubgroups(array $existingRecords, array $subgroupReferences): void
     {
         foreach ($existingRecords as $existingRecord) {
-            $this->groups[$this->currentRecordType][$existingRecord[self::IDENTIFIER_FIELDS[$this->currentRecordType]]] = $existingRecord['uid'];
+            $this->groups[$this->currentRecordType->getTable()][$existingRecord[$this->currentRecordType->getIdentifierField()]] = $existingRecord['uid'];
         }
 
         // Add subgroup information after collecting all UIDs:
         foreach ($subgroupReferences as $identifier => $subgroupReference) {
             // Replace title with actual UID:
-            array_walk($subgroupReference, function(&$value) {
-                $value = $this->groups[$this->currentRecordType][$value];
+            array_walk($subgroupReference, function (&$value) {
+                $value = $this->groups[$this->currentRecordType->getTable()][$value];
             });
             $connection = GeneralUtility::makeInstance(ConnectionPool::class)
-                ->getConnectionForTable(self::TABLES[$this->currentRecordType]);
-            $connection->update(
-                self::TABLES[$this->currentRecordType],
+                ->getConnectionForTable($this->currentRecordType->getTable());
+            $connection->update($this->currentRecordType->getTable(),
                 ['subgroup' => implode(',', $subgroupReference)],
-                [self::IDENTIFIER_FIELDS[$this->currentRecordType] => $identifier]
-            );
+                [$this->currentRecordType->getIdentifierField() => $identifier]);
         }
     }
 
+    // This converts the user group names to their respective UIDs.
     private function processBackendUserGroups(array &$settings): void
     {
         if (isset($settings['usergroup'])) {
-            array_walk($settings['usergroup'], function(&$value) {
-                $value = $this->groups[$this->currentRecordType][$value] ?? '';
+            array_walk($settings['usergroup'], function (&$value) {
+                $value = $this->groups[$this->currentRecordType->getTable()][$value] ?? '';
             });
             $settings['usergroup'] = implode(',', $settings['usergroup']);
         }
     }
 
-    private function removeAbandonedRecords(array $existingIdentifiers): int
+    private function removeAbandonedRecords(string ...$existingIdentifiers): int
     {
-        $table = self::TABLES[$this->currentRecordType];
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getQueryBuilderForTable($table);
+        $table = $this->currentRecordType->getTable();
+        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
 
         return $queryBuilder->delete($table)
-            ->where(
-                $queryBuilder->expr()
-                    ->notIn(
-                        self::IDENTIFIER_FIELDS[$this->currentRecordType],
-                        $queryBuilder->createNamedParameter(
-                            $existingIdentifiers,
-                            ArrayParameterType::STRING
-                        )
-                    )
-            )
+            ->where($queryBuilder->expr()
+                ->notIn($this->currentRecordType->getIdentifierField(),
+                    $queryBuilder->createNamedParameter($existingIdentifiers, ArrayParameterType::STRING)))
             ->executeStatement();
     }
 }
