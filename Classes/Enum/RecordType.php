@@ -49,6 +49,14 @@ enum RecordType: string
         };
     }
 
+    public function getGroupTable(): string
+    {
+        return match ($this) {
+            self::BackendGroup, self::BackendUser   => 'be_groups',
+            self::FrontendGroup, self::FrontendUser => 'fe_groups',
+        };
+    }
+
     public function getIdentifierField(): string
     {
         return match ($this) {

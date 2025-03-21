@@ -74,6 +74,7 @@ class ExportCommand extends Command
         'password_reset_token',
         'sorting',
         'tstamp',
+        'uc',
         'uid',
     ];
     protected SymfonyStyle $io;
@@ -179,7 +180,7 @@ class ExportCommand extends Command
         $groups = GeneralUtility::intExplode(',', $record[$recordType->getGroupField()]);
 
         array_walk($groups, static function(&$value) use ($groupsMapping, $recordType) {
-            $value = $groupsMapping[$recordType->getTable()][$value] ?? '';
+            $value = $groupsMapping[$recordType->getGroupTable()][$value] ?? '';
         });
 
         $record[$recordType->getGroupField()] = $groups;
