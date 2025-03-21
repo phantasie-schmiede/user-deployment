@@ -111,7 +111,7 @@ class DeployCommand extends Command
             $configuration = $this->importConfigurationFiles($configuration);
         }
 
-        foreach (RecordType::cases() as $recordType) {
+        foreach (RecordType::strictlyOrderedCases() as $recordType) {
             $tableName = $recordType->getTable();
 
             if (!empty($configuration[$tableName]) && is_array($configuration[$tableName])) {
@@ -194,11 +194,11 @@ class DeployCommand extends Command
             switch ($this->currentRecordType) {
                 case RecordType::BackendGroup:
                 case RecordType::FrontendGroup:
-                    $this->prepareBackendSubgroups($identifier, $settings, $subgroupReferences);
+                    $this->prepareSubgroups($identifier, $settings, $subgroupReferences);
                     break;
                 case RecordType::BackendUser:
                 case RecordType::FrontendUser:
-                    $this->processBackendUserGroups($settings);
+                    $this->processUserGroups($settings);
                     break;
             }
 
@@ -287,11 +287,11 @@ class DeployCommand extends Command
         return $configuration;
     }
 
-    private function prepareBackendSubgroups(string $identifier, array &$settings, array &$subgroupReferences): void
+    private function prepareSubgroups(string $identifier, array &$settings, array &$subgroupReferences): void
     {
-        if (isset($settings['subgroup'])) {
-            $subgroupReferences[$identifier] = $settings['subgroup'];
-            unset($settings['subgroup']);
+        if (isset($settings[$this->currentRecordType->getGroupField()])) {
+            $subgroupReferences[$identifier] = $settings[$this->currentRecordType->getGroupField()];
+            unset($settings[$this->currentRecordType->getGroupField()]);
         }
     }
 
@@ -310,19 +310,19 @@ class DeployCommand extends Command
             $connection = GeneralUtility::makeInstance(ConnectionPool::class)
                 ->getConnectionForTable($this->currentRecordType->getTable());
             $connection->update($this->currentRecordType->getTable(),
-                ['subgroup' => implode(',', $subgroupReference)],
+                [$this->currentRecordType->getGroupField() => implode(',', $subgroupReference)],
                 [$this->currentRecordType->getIdentifierField() => $identifier]);
         }
     }
 
     // This converts the user group names to their respective UIDs.
-    private function processBackendUserGroups(array &$settings): void
+    private function processUserGroups(array &$settings): void
     {
-        if (isset($settings['usergroup'])) {
-            array_walk($settings['usergroup'], function (&$value) {
+        if (isset($settings[$this->currentRecordType->getGroupField()])) {
+            array_walk($settings[$this->currentRecordType->getGroupField()], function (&$value) {
                 $value = $this->groups[$this->currentRecordType->getTable()][$value] ?? '';
             });
-            $settings['usergroup'] = implode(',', $settings['usergroup']);
+            $settings[$this->currentRecordType->getGroupField()] = implode(',', $settings[$this->currentRecordType->getGroupField()]);
         }
     }
 
