@@ -13,7 +13,7 @@
         "Basic editor": {
             "non_exclude_fields": "pages:backend_layout_next_level,pages:backend_layout,pages:description,pages:media,",
             "tables_modify": "pages,tt_content",
-            "tables_select": "pages,tt_content",
+            "tables_select": "pages,tt_content"
         }
     },
     "be_users": { // table name
@@ -22,7 +22,7 @@
             "pid": 0
         },
         "_variables": {
-            "@descriptionMarketing": "User has access to marketing data", // The key (variable name) can be any string, but it is recommended to use a prefix like "@" to indicate that it is a variable.
+            "@descriptionMarketing": "User has access to marketing data" // The key (variable name) can be any string, but it is recommended to use a prefix like "@" to indicate that it is a variable.
         },
         "jadoe": { // The key is used as username and must be unique obviously. Providing a username inside this record would have no effect.
             "description": "@descriptionMarketing", // Will be replaced with value from _variables.
