@@ -28,6 +28,19 @@ enum RecordType: string
     case FrontendGroup = 'fe_groups';
     case FrontendUser  = 'fe_users';
 
+    /**
+     * @return RecordType[]
+     */
+    public static function strictlyOrderedCases(): array
+    {
+        return [
+            0 => self::BackendGroup,
+            1 => self::FrontendGroup,
+            2 => self::BackendUser,
+            3 => self::FrontendUser,
+        ];
+    }
+
     public function getGroupField(): string
     {
         return match ($this) {

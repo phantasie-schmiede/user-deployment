@@ -111,7 +111,7 @@ class DeployCommand extends Command
             $configuration = $this->importConfigurationFiles($configuration);
         }
 
-        foreach (RecordType::cases() as $recordType) {
+        foreach (RecordType::strictlyOrderedCases() as $recordType) {
             $tableName = $recordType->getTable();
 
             if (!empty($configuration[$tableName]) && is_array($configuration[$tableName])) {
