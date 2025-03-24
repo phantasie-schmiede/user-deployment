@@ -155,11 +155,13 @@ class ExportCommand extends Command
             $identifierField = $recordType->getIdentifierField();
             $identifier = $record[$identifierField];
             unset($record[$identifierField]);
-            $this->replaceRelationIdentifier(
-                $mapping[$recordType->getGroupTable()],
-                $record,
-                $recordType->getGroupField()
-            );
+            if (null !== $recordType->getGroupField()) {
+                $this->replaceRelationIdentifier(
+                    $mapping[$recordType->getGroupTable()],
+                    $record,
+                    $recordType->getGroupField()
+                );
+            }
 
             if (in_array($recordType, [
                 RecordType::BackendGroup,
