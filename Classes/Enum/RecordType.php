@@ -25,6 +25,7 @@ enum RecordType: string
 {
     case BackendGroup  = 'be_groups';
     case BackendUser   = 'be_users';
+    case FileMount     = 'sys_filemounts';
     case FrontendGroup = 'fe_groups';
     case FrontendUser  = 'fe_users';
 
@@ -34,34 +35,37 @@ enum RecordType: string
     public static function strictlyOrderedCases(): array
     {
         return [
-            0 => self::BackendGroup,
-            1 => self::FrontendGroup,
-            2 => self::BackendUser,
-            3 => self::FrontendUser,
+            0 => self::FileMount,
+            1 => self::BackendGroup,
+            2 => self::FrontendGroup,
+            3 => self::BackendUser,
+            4 => self::FrontendUser,
         ];
     }
 
-    public function getGroupField(): string
+    public function getGroupField(): ?string
     {
         return match ($this) {
             self::BackendGroup, self::FrontendGroup => 'subgroup',
             self::BackendUser, self::FrontendUser   => 'usergroup',
+            default                                 => null,
         };
     }
 
-    public function getGroupTable(): string
+    public function getGroupTable(): ?string
     {
         return match ($this) {
             self::BackendGroup, self::BackendUser   => 'be_groups',
             self::FrontendGroup, self::FrontendUser => 'fe_groups',
+            default                                 => null,
         };
     }
 
-    public function getIdentifierField(): string
+    public function getIdentifierField(): ?string
     {
         return match ($this) {
-            self::BackendGroup, self::FrontendGroup => 'title',
-            self::BackendUser, self::FrontendUser   => 'username',
+            self::BackendGroup, self::FileMount, self::FrontendGroup => 'title',
+            self::BackendUser, self::FrontendUser                    => 'username',
         };
     }
 

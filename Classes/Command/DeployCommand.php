@@ -22,9 +22,11 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use function in_array;
 use function is_array;
+use function is_string;
 
 /**
  * Class DeployCommand
@@ -80,18 +82,28 @@ class DeployCommand extends Command
 {
     protected RecordType   $currentRecordType;
     protected bool         $dryRun                 = false;
-    protected array        $groups                 = [];
     protected SymfonyStyle $io;
+    protected array        $mapping                = [];
     protected bool         $removeAbandonedRecords = false;
 
     protected function configure(): void
     {
-        $this->setHelp('This command imports a JSON file containing the configuration for users and user groups in both backend and frontend.')
+        $this->setHelp(
+            'This command imports a JSON file containing the configuration for users and user groups in both backend and frontend.'
+        )
             ->addArgument('file', InputArgument::REQUIRED, 'Provide the source which should be deployed.')
-            ->addOption('dry-run', 'd', InputOption::VALUE_NONE,
-                'Don\'t make changes to the database, but show number of affected records only. You can use --dry-run or -d when running this command.',)
-            ->addOption('remove', 'rm', InputOption::VALUE_NONE,
-                'Delete records from the database which are not included in the given configuration file. You can use --remove or -rm when running this command.',);
+            ->addOption(
+                'dry-run',
+                'd',
+                InputOption::VALUE_NONE,
+                'Don\'t make changes to the database, but show number of affected records only. You can use --dry-run or -d when running this command.',
+            )
+            ->addOption(
+                'remove',
+                'rm',
+                InputOption::VALUE_NONE,
+                'Delete records from the database which are not included in the given configuration file. You can use --remove or -rm when running this command.',
+            );
     }
 
     /**
@@ -128,13 +140,20 @@ class DeployCommand extends Command
     private function countAbandonedRecords(string ...$existingIdentifiers): int
     {
         $table = $this->currentRecordType->getTable();
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
+        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
+            ->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()
+            ->removeAll();
 
         return $queryBuilder->select('COUNT(*)')
             ->from($table)
-            ->where($queryBuilder->expr()
-                ->notIn($this->currentRecordType->getIdentifierField(),
-                    $queryBuilder->createNamedParameter($existingIdentifiers, ArrayParameterType::STRING)))
+            ->where(
+                $queryBuilder->expr()
+                    ->notIn(
+                        $this->currentRecordType->getIdentifierField(),
+                        $queryBuilder->createNamedParameter($existingIdentifiers, ArrayParameterType::STRING)
+                    )
+            )
             ->executeQuery()
             ->fetchOne();
     }
@@ -144,7 +163,7 @@ class DeployCommand extends Command
      */
     private function decodeConfigurationFile(string $fileName): array
     {
-        return json_decode($fileName, true, 512, JSON_THROW_ON_ERROR);
+        return json_decode(file_get_contents($fileName), true, 512, JSON_THROW_ON_ERROR);
     }
 
     /**
@@ -161,21 +180,33 @@ class DeployCommand extends Command
         $variables = $this->extractValue($configuration, '_variables');
         $identifiers = array_keys($configuration);
         $existingRecords = $this->getExistingRecords($identifiers);
-        $existingIdentifiers = array_column($existingRecords, $this->currentRecordType->getIdentifierField());
+        $existingIdentifiers = array_column($existingRecords, $recordType->getIdentifierField());
 
         if ($this->removeAbandonedRecords) {
             if ($this->dryRun) {
-                $this->io->info($this->countAbandonedRecords(...$identifiers) . ' records would be removed.');
+                $this->io->info(
+                    $this->countAbandonedRecords(...$identifiers) . ' ' . $recordType->getTable(
+                    ) . ' records would be removed.'
+                );
             } else {
-                $this->io->info($this->removeAbandonedRecords(...$identifiers) . ' records have been removed.');
+                $this->io->info(
+                    $this->removeAbandonedRecords(...$identifiers) . ' ' . $recordType->getTable(
+                    ) . ' records have been removed.'
+                );
             }
         }
 
-        if (in_array($this->currentRecordType, [
+        if (in_array($recordType, [
             RecordType::BackendGroup,
+            RecordType::FileMount,
             RecordType::FrontendGroup,
         ], true)) {
             $subgroupReferences = [];
+
+            foreach ($existingRecords as $existingRecord) {
+                $this->mapping[$recordType->getTable()][$existingRecord[$recordType->getIdentifierField(
+                )]] = $existingRecord['uid'];
+            }
         }
 
         foreach ($configuration as $identifier => $settings) {
@@ -183,45 +214,66 @@ class DeployCommand extends Command
 
             // Replace variable references:
             array_walk($settings, static function(&$value) use ($variables) {
-                if (isset($variables[$value])) {
+                if (is_string($value) && isset($variables[$value])) {
                     $value = $variables[$value];
                 }
             });
 
-            $settings[$this->currentRecordType->getIdentifierField()] = $identifier;
+            $settings[$recordType->getIdentifierField()] = $identifier;
             $settings['tstamp'] = time();
 
-            switch ($this->currentRecordType) {
+            switch ($recordType) {
                 case RecordType::BackendGroup:
                 case RecordType::FrontendGroup:
                     $this->prepareSubgroups($identifier, $settings, $subgroupReferences);
                     break;
                 case RecordType::BackendUser:
                 case RecordType::FrontendUser:
-                    $this->processUserGroups($settings);
+                    $this->processRelations(
+                        $recordType->getGroupField(),
+                        $recordType->getGroupTable(),
+                        $settings
+                    );
                     break;
+                default:
+            }
+
+            if (in_array($recordType, [
+                RecordType::BackendGroup,
+                RecordType::BackendUser,
+            ], true)) {
+                $this->processRelations('file_mountpoints', 'sys_filemounts', $settings);
             }
 
             $connection = GeneralUtility::makeInstance(ConnectionPool::class)
-                ->getConnectionForTable($this->currentRecordType->getTable());
+                ->getConnectionForTable($recordType->getTable());
 
             if (in_array($identifier, $existingIdentifiers, true)) {
                 if (!$this->dryRun) {
-                    $connection->update($this->currentRecordType->getTable(), $settings,
-                        [$this->currentRecordType->getIdentifierField() => $identifier]);
+                    $connection->update(
+                        $recordType->getTable(),
+                        $settings,
+                        [$recordType->getIdentifierField() => $identifier]
+                    );
                 }
 
                 $updatedRecords++;
             } else {
                 if (!$this->dryRun) {
-                    $settings['crdate'] = $settings['tstamp'];
-                    $connection->insert($this->currentRecordType->getTable(), $settings);
+                    if (RecordType::FileMount !== $recordType) {
+                        $settings['crdate'] = $settings['tstamp'];
+                    }
 
-                    if (in_array($this->currentRecordType, [
+                    $connection->insert($recordType->getTable(), $settings);
+
+                    if (in_array($recordType, [
                         RecordType::BackendGroup,
+                        RecordType::FileMount,
                         RecordType::FrontendGroup,
                     ], true)) {
-                        $this->groups[$this->currentRecordType->getTable()][$identifier] = $connection->lastInsertId($this->currentRecordType->getTable());
+                        $this->mapping[$recordType->getTable()][$identifier] = $connection->lastInsertId(
+                            $recordType->getTable()
+                        );
                     }
                 }
 
@@ -229,7 +281,7 @@ class DeployCommand extends Command
             }
         }
 
-        if (in_array($this->currentRecordType, [
+        if (in_array($recordType, [
             RecordType::BackendGroup,
             RecordType::FrontendGroup,
         ], true)) {
@@ -237,11 +289,19 @@ class DeployCommand extends Command
         }
 
         if ($this->dryRun) {
-            $this->io->info($createdRecords . ' records would be created.');
-            $this->io->info($updatedRecords . ' records would be updated.');
+            $this->io->info(
+                $createdRecords . ' ' . $recordType->getTable() . ' records would be created.'
+            );
+            $this->io->info(
+                $updatedRecords . ' ' . $recordType->getTable() . ' records would be updated.'
+            );
         } else {
-            $this->io->info($createdRecords . ' records have been created.');
-            $this->io->info($updatedRecords . ' records have been updated.');
+            $this->io->info(
+                $createdRecords . ' ' . $recordType->getTable() . ' records have been created.'
+            );
+            $this->io->info(
+                $updatedRecords . ' ' . $recordType->getTable() . ' records have been updated.'
+            );
         }
     }
 
@@ -265,12 +325,21 @@ class DeployCommand extends Command
     {
         $identifierField = $this->currentRecordType->getIdentifierField();
         $table = $this->currentRecordType->getTable();
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
+        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
+            ->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()
+            ->removeAll()
+            ->add(GeneralUtility::makeInstance(DeletedRestriction::class));
 
         return $queryBuilder->select($identifierField, 'uid')
             ->from($table)
-            ->where($queryBuilder->expr()
-                ->in($identifierField, $queryBuilder->createNamedParameter($identifiers, ArrayParameterType::STRING)))
+            ->where(
+                $queryBuilder->expr()
+                    ->in(
+                        $identifierField,
+                        $queryBuilder->createNamedParameter($identifiers, ArrayParameterType::STRING)
+                    )
+            )
             ->executeQuery()
             ->fetchAllAssociative();
     }
@@ -289,52 +358,68 @@ class DeployCommand extends Command
 
     private function prepareSubgroups(string $identifier, array &$settings, array &$subgroupReferences): void
     {
-        if (isset($settings[$this->currentRecordType->getGroupField()])) {
-            $subgroupReferences[$identifier] = $settings[$this->currentRecordType->getGroupField()];
-            unset($settings[$this->currentRecordType->getGroupField()]);
+        $groupField = $this->currentRecordType->getGroupField();
+
+        if (isset($settings[$groupField])) {
+            $subgroupReferences[$identifier] = $settings[$groupField];
+            unset($settings[$groupField]);
         }
     }
 
     private function processBackendSubgroups(array $existingRecords, array $subgroupReferences): void
     {
-        foreach ($existingRecords as $existingRecord) {
-            $this->groups[$this->currentRecordType->getTable()][$existingRecord[$this->currentRecordType->getIdentifierField()]] = $existingRecord['uid'];
-        }
+        $table = $this->currentRecordType->getTable();
 
         // Add subgroup information after collecting all UIDs:
         foreach ($subgroupReferences as $identifier => $subgroupReference) {
+            if (!is_array($subgroupReference)) {
+                continue;
+            }
+
             // Replace title with actual UID:
-            array_walk($subgroupReference, function (&$value) {
-                $value = $this->groups[$this->currentRecordType->getTable()][$value];
+            array_walk($subgroupReference, function(&$value) {
+                $value = $this->mapping[$this->currentRecordType->getGroupTable()][$value];
             });
             $connection = GeneralUtility::makeInstance(ConnectionPool::class)
-                ->getConnectionForTable($this->currentRecordType->getTable());
-            $connection->update($this->currentRecordType->getTable(),
+                ->getConnectionForTable($table);
+            $connection->update(
+                $table,
                 [$this->currentRecordType->getGroupField() => implode(',', $subgroupReference)],
-                [$this->currentRecordType->getIdentifierField() => $identifier]);
+                [$this->currentRecordType->getIdentifierField() => $identifier]
+            );
         }
     }
 
-    // This converts the user group names to their respective UIDs.
-    private function processUserGroups(array &$settings): void
+    // This converts the identifiers to their respective UIDs.
+    private function processRelations(string $relationField, string $relationTable, array &$settings): void
     {
-        if (isset($settings[$this->currentRecordType->getGroupField()])) {
-            array_walk($settings[$this->currentRecordType->getGroupField()], function (&$value) {
-                $value = $this->groups[$this->currentRecordType->getTable()][$value] ?? '';
+        if (isset($settings[$relationField]) && is_array($settings[$relationField])) {
+            array_walk($settings[$relationField], function(&$value) use ($relationTable) {
+                $value = $this->mapping[$relationTable][$value] ?? '';
             });
-            $settings[$this->currentRecordType->getGroupField()] = implode(',', $settings[$this->currentRecordType->getGroupField()]);
+            $settings[$relationField] = implode(
+                ',',
+                $settings[$relationField]
+            );
         }
     }
 
     private function removeAbandonedRecords(string ...$existingIdentifiers): int
     {
         $table = $this->currentRecordType->getTable();
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
+        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
+            ->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()
+            ->removeAll();
 
         return $queryBuilder->delete($table)
-            ->where($queryBuilder->expr()
-                ->notIn($this->currentRecordType->getIdentifierField(),
-                    $queryBuilder->createNamedParameter($existingIdentifiers, ArrayParameterType::STRING)))
+            ->where(
+                $queryBuilder->expr()
+                    ->notIn(
+                        $this->currentRecordType->getIdentifierField(),
+                        $queryBuilder->createNamedParameter($existingIdentifiers, ArrayParameterType::STRING)
+                    )
+            )
             ->executeStatement();
     }
 }

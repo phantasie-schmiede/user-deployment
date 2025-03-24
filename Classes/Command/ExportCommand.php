@@ -30,11 +30,11 @@ use function in_array;
  *
  * @package PSB\PsbUserDeployment\Command
  */
-#[AsCommand(name: 'psbUserDeployment:export', description: 'This command exports users and user groups into a JSON file which can be used as basis for further additions and optimizations.')]
+#[AsCommand(name: 'psbUserDeployment:export', description: 'This command exports file mounts, users and user groups into a JSON file which can be used as basis for further additions and optimizations.')]
 class ExportCommand extends Command
 {
     private const array DEFAULT_VALUES  = [
-        'be_groups' => [
+        'be_groups'      => [
             'allowed_languages'   => '',
             'availableWidgets'    => 0,
             'category_perms'      => '',
@@ -48,21 +48,29 @@ class ExportCommand extends Command
             'groupMods'           => '',
             'non_exclude_fields'  => '',
             'pagetypes_select'    => '',
+            'pid'                 => 0,
             'subgroup'            => '',
             'tables_modify'       => '',
             'tables_select'       => '',
             'TSconfig'            => '',
             'workspace_perms'     => 0,
         ],
-        'be_users'  => [
+        'be_users'       => [
             'admin'            => 0,
             'file_permissions' => '',
             'lang'             => 'default',
             'mfa'              => null,
+            'pid'              => 0,
             'TSconfig'         => '',
         ],
-        'fe_groups' => [],
-        'fe_users'  => [],
+        'fe_groups'      => [],
+        'fe_users'       => [],
+        'sys_filemounts' => [
+            'description' => '',
+            'hidden'      => 0,
+            'pid'         => 0,
+            'read_only'   => 0,
+        ],
     ];
     private const array EXCLUDED_FIELDS = [
         'crdate',
@@ -82,7 +90,7 @@ class ExportCommand extends Command
     protected function configure(): void
     {
         $this->setHelp(
-            'This command exports a JSON file containing the existing user and user group records in both backend and frontend.'
+            'This command exports a JSON file containing the existing file mount, user and user group records in both backend and frontend.'
         )
             ->addArgument('file', InputArgument::REQUIRED, 'Provide the name of the created export file.');
     }
@@ -90,15 +98,15 @@ class ExportCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $configuration = [];
-        $groupsMapping = [];
+        $mapping = [];
         $this->io = new SymfonyStyle($input, $output);
         $fileName = $input->getArgument('file');
 
-        $this->io->writeln('Exporting users and user groups to ' . $fileName . '.');
+        $this->io->writeln('Exporting file mounts, users and user groups to ' . $fileName . '.');
 
         try {
             foreach (RecordType::strictlyOrderedCases() as $recordType) {
-                $this->exportToConfiguration($configuration, $groupsMapping, $recordType);
+                $this->exportToConfiguration($configuration, $mapping, $recordType);
             }
 
             $this->exportToFile($configuration, $fileName);
@@ -115,7 +123,7 @@ class ExportCommand extends Command
     /**
      * @throws Exception
      */
-    private function exportToConfiguration(array &$configuration, array &$groupsMapping, RecordType $recordType): void
+    private function exportToConfiguration(array &$configuration, array &$mapping, RecordType $recordType): void
     {
         $table = $recordType->getTable();
         $configuration[$table]['_default'] = self::DEFAULT_VALUES[$table];
@@ -135,10 +143,11 @@ class ExportCommand extends Command
 
         if (in_array($recordType, [
             RecordType::BackendGroup,
+            RecordType::FileMount,
             RecordType::FrontendGroup,
         ], true)) {
             foreach ($records as $record) {
-                $groupsMapping[$table][$record['uid']] = $record[$recordType->getIdentifierField()];
+                $mapping[$table][$record['uid']] = $record[$recordType->getIdentifierField()];
             }
         }
 
@@ -146,7 +155,18 @@ class ExportCommand extends Command
             $identifierField = $recordType->getIdentifierField();
             $identifier = $record[$identifierField];
             unset($record[$identifierField]);
-            $this->replaceGroupIdentifiers($groupsMapping, $record, $recordType);
+            $this->replaceRelationIdentifier(
+                $mapping[$recordType->getGroupTable()],
+                $record,
+                $recordType->getGroupField()
+            );
+
+            if (in_array($recordType, [
+                RecordType::BackendGroup,
+                RecordType::BackendUser,
+            ], true)) {
+                $this->replaceRelationIdentifier($mapping['sys_filemounts'], $record, 'file_mountpoints');
+            }
 
             foreach ($record as $field => $value) {
                 // Add field to configuration if it is not the default value and not in the excluded fields.
@@ -171,18 +191,18 @@ class ExportCommand extends Command
         GeneralUtility::writeFile($file, $fileContent);
     }
 
-    private function replaceGroupIdentifiers(array $groupsMapping, array &$record, RecordType $recordType): void
+    private function replaceRelationIdentifier(array $tableMapping, array &$record, string $relationField): void
     {
-        if (empty($record[$recordType->getGroupField()])) {
+        if (empty($record[$relationField])) {
             return;
         }
 
-        $groups = GeneralUtility::intExplode(',', $record[$recordType->getGroupField()]);
+        $relations = GeneralUtility::intExplode(',', $record[$relationField]);
 
-        array_walk($groups, static function(&$value) use ($groupsMapping, $recordType) {
-            $value = $groupsMapping[$recordType->getGroupTable()][$value] ?? '';
+        array_walk($relations, static function(&$value) use ($tableMapping) {
+            $value = $tableMapping[$value] ?? '';
         });
 
-        $record[$recordType->getGroupField()] = $groups;
+        $record[$relationField] = array_filter($relations);
     }
 }
