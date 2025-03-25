@@ -180,6 +180,8 @@ class ExportCommand extends Command
                     $configuration[$table][$identifier][$field] = $value;
                 }
             }
+
+            ksort($configuration[$table][$identifier], SORT_NATURAL);
         }
     }
 
@@ -188,8 +190,9 @@ class ExportCommand extends Command
      */
     private function exportToFile(array $configuration, string $fileName): void
     {
+        ksort($configuration, SORT_NATURAL);
         $file = GeneralUtility::getFileAbsFileName($fileName);
-        $fileContent = json_encode($configuration, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT);
+        $fileContent = json_encode($configuration, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
         GeneralUtility::writeFile($file, $fileContent);
     }
 
@@ -205,6 +208,8 @@ class ExportCommand extends Command
             $value = $tableMapping[$value] ?? '';
         });
 
-        $record[$relationField] = array_filter($relations);
+        $relations = array_filter($relations);
+        ksort($relations, SORT_NATURAL);
+        $record[$relationField] = $relations;
     }
 }
