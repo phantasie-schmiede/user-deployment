@@ -56,12 +56,26 @@ class ExportCommand extends Command
             'workspace_perms'     => 0,
         ],
         'be_users'       => [
-            'admin'            => 0,
-            'file_permissions' => '',
-            'lang'             => 'default',
-            'mfa'              => null,
-            'pid'              => 0,
-            'TSconfig'         => '',
+            'admin'             => 0,
+            'allowed_languages' => '',
+            'avatar'            => 0,
+            'category_perms'    => '0',
+            'db_mountpoints'    => '',
+            'description'       => '',
+            'disable'           => 0,
+            'endtime'           => 0,
+            'file_mountpoints'  => '',
+            'file_permissions'  => '',
+            'lang'              => 'de',
+            'mfa'               => null,
+            'options'           => 3,
+            'pid'               => 0,
+            'starttime'         => 0,
+            'TSconfig'          => '',
+            'userMods'          => '',
+            'usergroup'         => '',
+            'workspace_id'      => 0,
+            'workspace_perms'   => 1,
         ],
         'fe_groups'      => [],
         'fe_users'       => [],
@@ -181,8 +195,10 @@ class ExportCommand extends Command
                 }
             }
 
-            ksort($configuration[$table][$identifier], SORT_NATURAL);
+            ksort($configuration[$table][$identifier], SORT_NATURAL | SORT_FLAG_CASE);
         }
+
+        ksort($configuration[$table], SORT_NATURAL | SORT_FLAG_CASE);
     }
 
     /**
@@ -190,7 +206,7 @@ class ExportCommand extends Command
      */
     private function exportToFile(array $configuration, string $fileName): void
     {
-        ksort($configuration, SORT_NATURAL);
+        ksort($configuration, SORT_NATURAL | SORT_FLAG_CASE);
         $file = GeneralUtility::getFileAbsFileName($fileName);
         $fileContent = json_encode($configuration, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
         GeneralUtility::writeFile($file, $fileContent);
@@ -209,7 +225,7 @@ class ExportCommand extends Command
         });
 
         $relations = array_filter($relations);
-        ksort($relations, SORT_NATURAL);
+        sort($relations, SORT_NATURAL | SORT_FLAG_CASE);
         $record[$relationField] = $relations;
     }
 }

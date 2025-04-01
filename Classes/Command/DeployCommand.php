@@ -100,9 +100,9 @@ class DeployCommand extends Command
             )
             ->addOption(
                 'remove',
-                'rm',
+                'x',
                 InputOption::VALUE_NONE,
-                'Delete records from the database which are not included in the given configuration file. You can use --remove or -rm when running this command.',
+                'Delete records from the database which are not included in the given configuration file. You can use --remove or -x when running this command.',
             );
     }
 
@@ -145,7 +145,7 @@ class DeployCommand extends Command
         $queryBuilder->getRestrictions()
             ->removeAll();
 
-        return $queryBuilder->select('COUNT(*)')
+        return $queryBuilder->count('*')
             ->from($table)
             ->where(
                 $queryBuilder->expr()
@@ -190,7 +190,7 @@ class DeployCommand extends Command
                 );
             } else {
                 $this->io->info(
-                    $this->removeAbandonedRecords(...$identifiers) . ' ' . $recordType->getTable(
+                    $this->softDeleteAbandonedRecords(...$identifiers) . ' ' . $recordType->getTable(
                     ) . ' records have been removed.'
                 );
             }
@@ -404,7 +404,7 @@ class DeployCommand extends Command
         }
     }
 
-    private function removeAbandonedRecords(string ...$existingIdentifiers): int
+    private function softDeleteAbandonedRecords(string ...$existingIdentifiers): int
     {
         $table = $this->currentRecordType->getTable();
         $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
@@ -412,7 +412,8 @@ class DeployCommand extends Command
         $queryBuilder->getRestrictions()
             ->removeAll();
 
-        return $queryBuilder->delete($table)
+        return $queryBuilder->update($table)
+            ->set('deleted', 1)
             ->where(
                 $queryBuilder->expr()
                     ->notIn(
