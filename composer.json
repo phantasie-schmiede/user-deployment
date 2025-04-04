@@ -38,7 +38,7 @@
 		"typo3"
 	],
 	"license": "GPL-3.0-or-later",
-	"name": "psb/psb-user-deployment",
+	"name": "psb/user-deployment",
 	"require": {
 		"ext-fileinfo": "*",
 		"ext-simplexml": "*",
@@ -47,16 +47,6 @@
 	},
 	"require-dev": {
 		"roave/security-advisories": "dev-latest"
-	},
-	"scripts": {
-		"prepare-release": [
-			"rm -rf .Build",
-			"rm -rf .github",
-			"rm -rf Tests",
-			"rm .editorconfig",
-			"rm .gitattributes",
-			"rm .gitignore"
-		]
 	},
 	"type": "typo3-cms-extension"
 }
