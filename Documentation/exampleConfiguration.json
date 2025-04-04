@@ -6,19 +6,19 @@
         "_variables": {
         },
         "Advanced editor": { // The key is used as title and must be unique obviously. Providing a title inside this record would have no effect.
+            "non_exclude_fields": "pages:backend_layout_next_level,pages:backend_layout,pages:description,pages:media,",
             "subgroup": [ // Groups are referenced by their title.
                 "Basic editor"
             ]
         },
         "Basic editor": {
-            "non_exclude_fields": "pages:backend_layout_next_level,pages:backend_layout,pages:description,pages:media,",
             "tables_modify": "pages,tt_content",
             "tables_select": "pages,tt_content"
         }
     },
     "be_users": { // table name
         "_default": {
-            "company": "Doe Inc.",
+            "lang": "default",
             "pid": 0
         },
         "_variables": {
