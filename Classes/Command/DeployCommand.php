@@ -113,7 +113,7 @@ class DeployCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $this->io = new SymfonyStyle($input, $output);
-        $fileName = $input->getArgument('file');
+        $fileName = GeneralUtility::getFileAbsFileName($input->getArgument('file'));
         $this->dryRun = (bool)$input->getOption('dry-run');
         $this->removeAbandonedRecords = (bool)$input->getOption('remove');
 
@@ -350,7 +350,7 @@ class DeployCommand extends Command
     private function importConfigurationFiles(array $configuration): array
     {
         foreach ($configuration['files'] as $fileName) {
-            array_merge($configuration, $this->decodeConfigurationFile($fileName));
+            $configuration = array_merge($configuration, $this->decodeConfigurationFile(GeneralUtility::getFileAbsFileName($fileName)));
         }
 
         return $configuration;

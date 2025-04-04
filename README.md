@@ -13,11 +13,11 @@ often used configurations to keep the files small and easy to read.
 - [What does it do?](#what-does-it-do)
 - [Why should you use it?](#why-should-you-use-it)
 - [How it works](#how-it-works)
-  - [Export](#export)
-  - [Default values](#default-values)
-  - [Variables](#variables)
-  - [File imports](#file-imports)
-  - [Deployment](#deployment)
+    - [Export](#export)
+    - [Default values](#default-values)
+    - [Variables](#variables)
+    - [File imports](#file-imports)
+    - [Deployment](#deployment)
 
 ### What does it do?
 
@@ -56,6 +56,10 @@ It's a good idea to first export the current user configuration.
 ```bash
 ./vendor/bin/typo3 psbUserDeployment:deploy ./path/to/your/configuration.json
 ```
+
+| Argument   | Description                                                           | Example                                                 |
+|------------|-----------------------------------------------------------------------|---------------------------------------------------------|
+| `filename` | target path and filename relative to web root or starting with `EXT:` | `EXT:my_extension/Configuration/psbUserDeployment.json` |
 
 Shortened example output (comments are not part of the JSON, of course, but are
 added here for helpful explanations):
@@ -159,8 +163,8 @@ Example:
 ```json
 {
     "files": [
-        "./path/to/your/file1.json",
-        "./path/to/your/file2.json"
+        "EXT:my_extension/Configuration/UserDeployment/backend.json",
+        "EXT:my_extension/Configuration/UserDeployment/frontend.json"
     ],
 }
 ```
@@ -178,7 +182,8 @@ The configuration can be deployed to the database via the command line:
 | `--dry-run` | `-d`  | Only show what would be done, but do not execute the changes.            |
 | `--remove`  | `-x`  | Remove all records (soft delete) that are not in the configuration file. |
 
-**Steps of the deployment:**
+**Steps:**
+
 1. Check if "files" is defined. If so, load the additional files and merge them
    into one configuration.
 2. Iterate over the given tables and records.
@@ -187,8 +192,8 @@ The configuration can be deployed to the database via the command line:
 4. Look for variable references and replace them with the actual values.
 5. Resolve group references and replace them with the actual UIDs.
 6. Check if the record already exists in the database.
-   1. If it does, update the record with the new values.
-   2. If it does not, create a new record with the given values.
+    1. If it does, update the record with the new values.
+    2. If it does not, create a new record with the given values.
 7. If the `--remove` option is set, remove all records that are not in the
    configuration file. This will only soft delete the records, so they can be
    restored later if needed.
