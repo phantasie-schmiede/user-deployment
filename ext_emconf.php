@@ -9,12 +9,12 @@ $EM_CONF[$_EXTKEY] = [
         'conflicts' => [],
         'depends'   => [
             'php'   => '8.3',
-            'typo3' => '13.4.0-13.4.99',
+            'typo3' => '12.4.0-13.4.99',
         ],
         'suggests'  => [],
     ],
     'description'      => 'Versioning and deployment of users, user groups and their privileges',
     'state'            => 'stable',
     'title'            => 'PSbits | User Deployment',
-    'version'          => '1.0.0',
+    'version'          => '1.0.1',
 ];
