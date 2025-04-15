@@ -14,6 +14,7 @@ use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Exception;
 use JsonException;
 use PSB\PsbUserDeployment\Enum\RecordType;
+use PSB\PsbUserDeployment\Service\PermissionService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -84,7 +85,14 @@ class DeployCommand extends Command
     protected bool         $dryRun                 = false;
     protected SymfonyStyle $io;
     protected array        $mapping                = [];
+    protected array        $pageTreeAccessMapping  = [];
     protected bool         $removeAbandonedRecords = false;
+
+    public function __construct(
+        protected readonly PermissionService $permissionService,
+    ) {
+        parent::__construct();
+    }
 
     protected function configure(): void
     {
@@ -219,6 +227,20 @@ class DeployCommand extends Command
                 }
             });
 
+            $pageTreeAccessMappingValue = $settings['_pageTreeAccess'] ?? null;
+
+            if (!$this->dryRun && RecordType::BackendGroup === $recordType && null !== $pageTreeAccessMappingValue) {
+                $pageUids = is_array(
+                    $pageTreeAccessMappingValue
+                ) ? $pageTreeAccessMappingValue : GeneralUtility::intExplode(',', (string)$pageTreeAccessMappingValue);
+
+                foreach ($pageUids as $pageUid) {
+                    $this->pageTreeAccessMapping[$pageUid] = $identifier;
+                }
+
+                unset($settings['_pageTreeAccess']);
+            }
+
             $settings[$recordType->getIdentifierField()] = $identifier;
             $settings['tstamp'] = time();
 
@@ -281,13 +303,6 @@ class DeployCommand extends Command
             }
         }
 
-        if (in_array($recordType, [
-            RecordType::BackendGroup,
-            RecordType::FrontendGroup,
-        ], true)) {
-            $this->processBackendSubgroups($existingRecords, $subgroupReferences);
-        }
-
         if ($this->dryRun) {
             $this->io->info(
                 $createdRecords . ' ' . $recordType->getTable() . ' records would be created.'
@@ -296,6 +311,20 @@ class DeployCommand extends Command
                 $updatedRecords . ' ' . $recordType->getTable() . ' records would be updated.'
             );
         } else {
+            if (in_array($recordType, [
+                RecordType::BackendGroup,
+                RecordType::FrontendGroup,
+            ], true)) {
+                $this->processBackendSubgroups($existingRecords, $subgroupReferences);
+            }
+
+            if (RecordType::BackendGroup === $recordType) {
+                array_walk($this->pageTreeAccessMapping, function(&$value) {
+                    $value = $this->mapping[RecordType::BackendGroup->getTable()][$value];
+                });
+                $this->permissionService->setPermissionsForAllPages($this->pageTreeAccessMapping);
+            }
+
             $this->io->info(
                 $createdRecords . ' ' . $recordType->getTable() . ' records have been created.'
             );
@@ -350,7 +379,10 @@ class DeployCommand extends Command
     private function importConfigurationFiles(array $configuration): array
     {
         foreach ($configuration['files'] as $fileName) {
-            $configuration = array_merge($configuration, $this->decodeConfigurationFile(GeneralUtility::getFileAbsFileName($fileName)));
+            $configuration = array_merge(
+                $configuration,
+                $this->decodeConfigurationFile(GeneralUtility::getFileAbsFileName($fileName))
+            );
         }
 
         return $configuration;
