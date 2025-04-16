@@ -13,6 +13,7 @@ namespace PSB\PsbUserDeployment\Command;
 use Doctrine\DBAL\Exception;
 use JsonException;
 use PSB\PsbUserDeployment\Enum\RecordType;
+use PSB\PsbUserDeployment\Service\PermissionService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -36,45 +37,47 @@ class ExportCommand extends Command
     private const array DEFAULT_VALUES  = [
         'be_groups'      => [
             'allowed_languages'   => '',
-            'availableWidgets'    => 0,
-            'category_perms'      => '',
-            'db_mountpoints'      => '',
-            'description'         => '',
+            'availableWidgets'    => null,
+            'category_perms'      => null,
+            'custom_options'      => null,
+            'db_mountpoints'      => null,
+            'description'         => null,
             'disable_auto_hide'   => 0,
-            'disable_auto_prefix' => '',
-            'explicit_allowdeny'  => '',
-            'file_mountpoints'    => '',
-            'file_permissions'    => '',
-            'groupMods'           => '',
+            'disable_auto_prefix' => 0,
+            'explicit_allowdeny'  => null,
+            'file_mountpoints'    => null,
+            'file_permissions'    => null,
+            'groupMods'           => null,
             'hidden'              => 0,
-            'non_exclude_fields'  => '',
-            'pagetypes_select'    => '',
+            'mfa_providers'       => null,
+            'non_exclude_fields'  => null,
+            'pagetypes_select'    => null,
             'pid'                 => 0,
-            'subgroup'            => '',
-            'tables_modify'       => '',
-            'tables_select'       => '',
-            'TSconfig'            => '',
-            'workspace_perms'     => 0,
+            'subgroup'            => null,
+            'tables_modify'       => null,
+            'tables_select'       => null,
+            'TSconfig'            => null,
+            'workspace_perms'     => 1,
         ],
         'be_users'       => [
             'admin'             => 0,
             'allowed_languages' => '',
             'avatar'            => 0,
-            'category_perms'    => '0',
-            'db_mountpoints'    => '',
-            'description'       => '',
+            'category_perms'    => null,
+            'db_mountpoints'    => null,
+            'description'       => null,
             'disable'           => 0,
             'endtime'           => 0,
-            'file_mountpoints'  => '',
-            'file_permissions'  => '',
-            'lang'              => 'de',
+            'file_mountpoints'  => null,
+            'file_permissions'  => null,
+            'lang'              => 'default',
             'mfa'               => null,
             'options'           => 3,
             'pid'               => 0,
             'starttime'         => 0,
-            'TSconfig'          => '',
-            'userMods'          => '',
-            'usergroup'         => '',
+            'TSconfig'          => null,
+            'userMods'          => null,
+            'usergroup'         => null,
             'workspace_id'      => 0,
             'workspace_perms'   => 1,
         ],
@@ -153,6 +156,9 @@ class ExportCommand extends Command
                 $this->exportToConfiguration($configuration, $mapping, $recordType);
             }
 
+            $this->io->writeln('Exporting information about page tree access.');
+            $this->exportPageTreeAccess($configuration);
+            $this->io->writeln('Exporting mapping for file mounts, users and user groups.');
             $this->exportToFile($configuration, $fileName);
             $this->io->success('The export has been successfully created.');
 
@@ -161,6 +167,48 @@ class ExportCommand extends Command
             $this->io->error('An error occurred during the export process: ' . $exception->getMessage());
 
             return Command::FAILURE;
+        }
+    }
+
+    /**
+     * Adds the information which page is accessible by which backend group to the configuration.
+     *
+     * @throws Exception
+     */
+    private function exportPageTreeAccess(array &$configuration): void
+    {
+        $backendGroupTable = RecordType::BackendGroup->getTable();
+        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
+            ->getQueryBuilderForTable('pages');
+        $queryBuilder->getRestrictions()
+            ->removeAll();
+        $records = $queryBuilder->join(
+            'pages',
+            $backendGroupTable,
+            $backendGroupTable,
+            $queryBuilder->expr()
+                ->eq('pages.perms_groupid', $queryBuilder->quoteIdentifier($backendGroupTable . '.uid'))
+        )
+            ->select('pages.uid', $backendGroupTable . '.title')
+            ->from('pages')
+            ->where(
+                $queryBuilder->expr()
+                    ->eq('pages.deleted', 0)
+            )
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        foreach ($records as $record) {
+            if (!isset(
+                $configuration[RecordType::BackendGroup->getTable(
+                )][$record['title']][PermissionService::PERMISSION_KEY]
+            )) {
+                $configuration[RecordType::BackendGroup->getTable(
+                )][$record['title']][PermissionService::PERMISSION_KEY] = $record['uid'];
+            } else {
+                $configuration[RecordType::BackendGroup->getTable(
+                )][$record['title']][PermissionService::PERMISSION_KEY] .= ',' . $record['uid'];
+            }
         }
     }
 
@@ -216,11 +264,15 @@ class ExportCommand extends Command
 
             foreach ($record as $field => $value) {
                 // Add field to configuration if it is not the default value and not in the excluded fields.
-                if ((!isset($configuration[$table]['_default'][$field]) || $value !== $configuration[$table]['_default'][$field]) && !in_array(
+                // @formatter:off
+                if ((!isset($configuration[$table]['_default'][$field]) || $value !== $configuration[$table]['_default'][$field])
+                    && (null !== ($configuration[$table]['_default'][$field] ?? true) || '' !== $value)
+                    && !in_array(
                         $field,
                         self::EXCLUDED_FIELDS,
                         true
                     )) {
+                    // format:on
                     $configuration[$table][$identifier][$field] = $value;
                 }
             }
