@@ -23,6 +23,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Throwable;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use function array_key_exists;
 use function count;
 use function in_array;
 
@@ -57,7 +58,7 @@ class ExportCommand extends Command
             'tables_modify'       => null,
             'tables_select'       => null,
             'TSconfig'            => null,
-            'workspace_perms'     => 1,
+            'workspace_perms'     => 0,
         ],
         'be_users'       => [
             'admin'             => 0,
@@ -112,7 +113,7 @@ class ExportCommand extends Command
             'zip'             => '',
         ],
         'sys_filemounts' => [
-            'description' => '',
+            'description' => null,
             'hidden'      => 0,
             'pid'         => 0,
             'read_only'   => 0,
@@ -189,7 +190,7 @@ class ExportCommand extends Command
             $queryBuilder->expr()
                 ->eq('pages.perms_groupid', $queryBuilder->quoteIdentifier($backendGroupTable . '.uid'))
         )
-            ->select('pages.uid', $backendGroupTable . '.title')
+            ->select('pages.uid', 'pages.pid', $backendGroupTable . '.title')
             ->from('pages')
             ->where(
                 $queryBuilder->expr()
@@ -198,16 +199,16 @@ class ExportCommand extends Command
             ->executeQuery()
             ->fetchAllAssociative();
 
+        $groupMap = [];
+
         foreach ($records as $record) {
-            if (!isset(
+            $groupMap[$record['uid']] = $record['title'];
+        }
+
+        foreach ($records as $record) {
+            if (0 === $groupMap[$record['pid']] || $groupMap[$record['pid']] !== $groupMap[$record['uid']]) {
                 $configuration[RecordType::BackendGroup->getTable(
-                )][$record['title']][PermissionService::PERMISSION_KEY]
-            )) {
-                $configuration[RecordType::BackendGroup->getTable(
-                )][$record['title']][PermissionService::PERMISSION_KEY] = $record['uid'];
-            } else {
-                $configuration[RecordType::BackendGroup->getTable(
-                )][$record['title']][PermissionService::PERMISSION_KEY] .= ',' . $record['uid'];
+                )][$record['title']][PermissionService::PERMISSION_KEY][] = $record['uid'];
             }
         }
     }
@@ -247,6 +248,8 @@ class ExportCommand extends Command
             $identifierField = $recordType->getIdentifierField();
             $identifier = $record[$identifierField];
             unset($record[$identifierField]);
+            $configuration[$table][$identifier] = [];
+
             if (null !== $recordType->getGroupField()) {
                 $this->replaceRelationIdentifier(
                     $mapping[$recordType->getGroupTable()],
@@ -263,16 +266,23 @@ class ExportCommand extends Command
             }
 
             foreach ($record as $field => $value) {
-                // Add field to configuration if it is not the default value and not in the excluded fields.
-                // @formatter:off
-                if ((!isset($configuration[$table]['_default'][$field]) || $value !== $configuration[$table]['_default'][$field])
-                    && (null !== ($configuration[$table]['_default'][$field] ?? true) || '' !== $value)
+                $defaultValueExists = array_key_exists($field, $configuration[$table]['_default'] ?? []);
+                $defaultValue = $configuration[$table]['_default'][$field] ?? null;
+
+                /*
+                 * Add field to configuration if it is not the default value and not in the excluded fields.
+                 * Don't add the field if the default value is null and the value is empty.
+                 *
+                 * @formatter:off
+                 */
+                if ((!$defaultValueExists || $defaultValue !== $value)
+                    && (!$defaultValueExists || null !== $defaultValue || !empty($value))
                     && !in_array(
                         $field,
                         self::EXCLUDED_FIELDS,
                         true
                     )) {
-                    // format:on
+                    // @formatter:on
                     $configuration[$table][$identifier][$field] = $value;
                 }
             }
