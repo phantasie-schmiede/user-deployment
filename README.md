@@ -16,6 +16,7 @@ often used configurations to keep the files small and easy to read.
     - [Export](#export)
     - [Default values](#default-values)
     - [Variables](#variables)
+    - [Page tree access (be_groups only!)](#page-tree-access-be_groups-only)
     - [File imports](#file-imports)
     - [Deployment](#deployment)
 
@@ -33,6 +34,7 @@ Tables supported:
 - be_users
 - fe_groups
 - fe_users
+- pages (perms_groupid only)
 - sys_filemounts
 
 **IMPORTANT!**
@@ -75,12 +77,26 @@ added here for helpful explanations):
         "Advanced editor": { // The key is used as title and must be unique obviously. Providing a title inside this record would have no effect.
             "non_exclude_fields": "pages:backend_layout_next_level,pages:backend_layout,pages:description,pages:media,",
             "subgroup": [ // Groups are referenced by their title.
-                "Basic editor"
+                "Basic editor",
+                "Root page"
             ]
         },
         "Basic editor": {
             "tables_modify": "pages,tt_content",
-            "tables_select": "pages,tt_content"
+            "tables_select": "pages,tt_content",
+            "subgroup": [
+                "News page"
+            ]
+        },
+        // special groups only for access rights to the page tree
+        "News page": {
+            "_pageTreeAccess": 5 // This group allows access to the page with UID 5 and all pages below unless another group is specified. 
+        },
+        "Root page": {
+            "_pageTreeAccess": 1,
+            "subgroup": [
+                "News page"
+            ]
         }
     },
     "be_users": { // table name
@@ -149,6 +165,16 @@ Example:
 
 You do not have to use the "@" sign, but it is recommended to keep to a
 naming convention to avoid confusion with other values.
+
+#### Page tree access (be_groups only!)
+
+The "_pageTreeAccess" property is used to define access to the page tree. The
+value is the UID of the page that the group should have access to. This will
+set the `perms_groupid` field of the page. The value can be a single UID, an
+array or a comma-separated list of UIDs. The perms_groupid will be inherited by
+all child pages, unless they have a different value set. If a child page has a
+different value set, all pages above it in the tree will receive visibility for
+everybody, so that the users can see the rootline of the page.
 
 #### File imports
 

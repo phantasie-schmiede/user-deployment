@@ -192,12 +192,12 @@ class DeployCommand extends Command
 
         if ($this->removeAbandonedRecords) {
             if ($this->dryRun) {
-                $this->io->info(
+                $this->io->writeln(
                     $this->countAbandonedRecords(...$identifiers) . ' ' . $recordType->getTable(
                     ) . ' records would be removed.'
                 );
             } else {
-                $this->io->info(
+                $this->io->writeln(
                     $this->softDeleteAbandonedRecords(...$identifiers) . ' ' . $recordType->getTable(
                     ) . ' records have been removed.'
                 );
@@ -227,7 +227,7 @@ class DeployCommand extends Command
                 }
             });
 
-            $pageTreeAccessMappingValue = $settings['_pageTreeAccess'] ?? null;
+            $pageTreeAccessMappingValue = $settings[PermissionService::PERMISSION_KEY] ?? null;
 
             if (!$this->dryRun && RecordType::BackendGroup === $recordType && null !== $pageTreeAccessMappingValue) {
                 $pageUids = is_array(
@@ -238,7 +238,7 @@ class DeployCommand extends Command
                     $this->pageTreeAccessMapping[$pageUid] = $identifier;
                 }
 
-                unset($settings['_pageTreeAccess']);
+                unset($settings[PermissionService::PERMISSION_KEY]);
             }
 
             $settings[$recordType->getIdentifierField()] = $identifier;
@@ -304,10 +304,10 @@ class DeployCommand extends Command
         }
 
         if ($this->dryRun) {
-            $this->io->info(
+            $this->io->writeln(
                 $createdRecords . ' ' . $recordType->getTable() . ' records would be created.'
             );
-            $this->io->info(
+            $this->io->writeln(
                 $updatedRecords . ' ' . $recordType->getTable() . ' records would be updated.'
             );
         } else {
@@ -318,17 +318,17 @@ class DeployCommand extends Command
                 $this->processBackendSubgroups($existingRecords, $subgroupReferences);
             }
 
-            if (RecordType::BackendGroup === $recordType) {
+            if (RecordType::BackendGroup === $recordType && !empty($this->pageTreeAccessMapping)) {
                 array_walk($this->pageTreeAccessMapping, function(&$value) {
                     $value = $this->mapping[RecordType::BackendGroup->getTable()][$value];
                 });
-                $this->permissionService->setPermissionsForAllPages($this->pageTreeAccessMapping);
+                $this->permissionService->setPermissionsForAllPages($this->io, $this->pageTreeAccessMapping);
             }
 
-            $this->io->info(
+            $this->io->writeln(
                 $createdRecords . ' ' . $recordType->getTable() . ' records have been created.'
             );
-            $this->io->info(
+            $this->io->writeln(
                 $updatedRecords . ' ' . $recordType->getTable() . ' records have been updated.'
             );
         }

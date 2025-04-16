@@ -13,6 +13,7 @@ namespace PSB\PsbUserDeployment\Command;
 use Doctrine\DBAL\Exception;
 use JsonException;
 use PSB\PsbUserDeployment\Enum\RecordType;
+use PSB\PsbUserDeployment\Service\PermissionService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -155,6 +156,9 @@ class ExportCommand extends Command
                 $this->exportToConfiguration($configuration, $mapping, $recordType);
             }
 
+            $this->io->writeln('Exporting information about page tree access.');
+            $this->exportPageTreeAccess($configuration);
+            $this->io->writeln('Exporting mapping for file mounts, users and user groups.');
             $this->exportToFile($configuration, $fileName);
             $this->io->success('The export has been successfully created.');
 
@@ -163,6 +167,48 @@ class ExportCommand extends Command
             $this->io->error('An error occurred during the export process: ' . $exception->getMessage());
 
             return Command::FAILURE;
+        }
+    }
+
+    /**
+     * Adds the information which page is accessible by which backend group to the configuration.
+     *
+     * @throws Exception
+     */
+    private function exportPageTreeAccess(array &$configuration): void
+    {
+        $backendGroupTable = RecordType::BackendGroup->getTable();
+        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
+            ->getQueryBuilderForTable('pages');
+        $queryBuilder->getRestrictions()
+            ->removeAll();
+        $records = $queryBuilder->join(
+            'pages',
+            $backendGroupTable,
+            $backendGroupTable,
+            $queryBuilder->expr()
+                ->eq('pages.perms_groupid', $queryBuilder->quoteIdentifier($backendGroupTable . '.uid'))
+        )
+            ->select('pages.uid', $backendGroupTable . '.title')
+            ->from('pages')
+            ->where(
+                $queryBuilder->expr()
+                    ->eq('pages.deleted', 0)
+            )
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        foreach ($records as $record) {
+            if (!isset(
+                $configuration[RecordType::BackendGroup->getTable(
+                )][$record['title']][PermissionService::PERMISSION_KEY]
+            )) {
+                $configuration[RecordType::BackendGroup->getTable(
+                )][$record['title']][PermissionService::PERMISSION_KEY] = $record['uid'];
+            } else {
+                $configuration[RecordType::BackendGroup->getTable(
+                )][$record['title']][PermissionService::PERMISSION_KEY] .= ',' . $record['uid'];
+            }
         }
     }
 

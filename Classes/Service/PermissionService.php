@@ -13,8 +13,7 @@ namespace PSB\PsbUserDeployment\Service;
 use Doctrine\DBAL\Exception as DoctrineException;
 use Exception;
 use PDO;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\DataHandling\PagePermissionAssembler;
@@ -28,10 +27,9 @@ use function count;
  *
  * @package PSB\PsbUserDeployment\Service
  */
-class PermissionService implements LoggerAwareInterface
+class PermissionService
 {
-    use LoggerAwareTrait;
-
+    public const string    PERMISSION_KEY  = '_pageTreeAccess';
     protected const array  RELEVANT_FIELDS = [
         'uid',
         'pid',
@@ -58,7 +56,7 @@ class PermissionService implements LoggerAwareInterface
      * @throws DoctrineException
      * @throws Exception
      */
-    public function setPermissionsForAllPages(array $pageTreeAccessMapping): void
+    public function setPermissionsForAllPages(SymfonyStyle $io, array $pageTreeAccessMapping): void
     {
         $queryBuilder = $this->createQueryBuilder();
         $this->pagesCounter = 0;
@@ -79,7 +77,7 @@ class PermissionService implements LoggerAwareInterface
                 ->executeQuery()
                 ->fetchAllAssociative();
 
-            $this->logger->info(
+            $io->writeln(
                 'Setting permissions for pages, starting at root page with UID ' . $siteConfiguration->getRootPageId(
                 ) . '.'
             );
@@ -87,7 +85,7 @@ class PermissionService implements LoggerAwareInterface
             $this->setPermissionsRecursively($pageData, $pageTreeAccessMapping);
         }
 
-        $this->logger->info(
+        $io->writeln(
             'Finished setting permissions for all pages. ' . $this->pagesCounter . ' pages were processed.'
         );
     }
@@ -137,8 +135,6 @@ class PermissionService implements LoggerAwareInterface
         foreach ($queryBuilder->getParameters() as $alias => $value) {
             $sql = str_replace(':' . $alias, (string)$value, $sql);
         }
-
-        $this->logger->debug('Executed update statement: ' . $sql);
     }
 
     /**
@@ -150,8 +146,6 @@ class PermissionService implements LoggerAwareInterface
         int   $parentPageGroupId = null,
     ): bool {
         foreach ($pages as $page) {
-            $this->logger->debug('Processing page ' . $page['uid'] . ' recursively.');
-
             $permissions = $this->pagePermissionAssembler->applyDefaults([],
                 $page['uid'],
                 $page['perms_userid'],
