@@ -23,7 +23,6 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use function in_array;
 use function is_array;
@@ -272,6 +271,9 @@ class DeployCommand extends Command
 
             if (in_array($identifier, $existingIdentifiers, true)) {
                 if (!$this->dryRun) {
+                    // Reactivate the record if it was soft-deleted.
+                    $settings['deleted'] = 0;
+
                     $connection->update(
                         $recordType->getTable(),
                         $settings,
@@ -357,8 +359,7 @@ class DeployCommand extends Command
         $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
             ->getQueryBuilderForTable($table);
         $queryBuilder->getRestrictions()
-            ->removeAll()
-            ->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+            ->removeAll();
 
         return $queryBuilder->select($identifierField, 'uid')
             ->from($table)
