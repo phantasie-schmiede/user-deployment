@@ -72,7 +72,6 @@ class ExportCommand extends Command
             'file_mountpoints'  => null,
             'file_permissions'  => null,
             'lang'              => 'default',
-            'mfa'               => null,
             'options'           => 3,
             'pid'               => 0,
             'starttime'         => 0,

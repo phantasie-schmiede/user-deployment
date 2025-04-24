@@ -187,7 +187,10 @@ class DeployCommand extends Command
         $variables = $this->extractValue($configuration, '_variables');
         $identifiers = array_keys($configuration);
         $existingRecords = $this->getExistingRecords($identifiers);
-        $existingIdentifiers = array_column($existingRecords, $recordType->getIdentifierField());
+        $existingIdentifiers = array_map(
+            'strtolower',
+            array_column($existingRecords, $recordType->getIdentifierField())
+        );
 
         if ($this->removeAbandonedRecords) {
             if ($this->dryRun) {
@@ -269,7 +272,7 @@ class DeployCommand extends Command
             $connection = GeneralUtility::makeInstance(ConnectionPool::class)
                 ->getConnectionForTable($recordType->getTable());
 
-            if (in_array($identifier, $existingIdentifiers, true)) {
+            if (in_array(strtolower($identifier), $existingIdentifiers, true)) {
                 if (!$this->dryRun) {
                     // Reactivate the record if it was soft-deleted.
                     $settings['deleted'] = 0;
