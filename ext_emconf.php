@@ -16,5 +16,5 @@ $EM_CONF[$_EXTKEY] = [
     'description'      => 'Deployment of users, user groups and their privileges',
     'state'            => 'stable',
     'title'            => 'PSbits | User Deployment',
-    'version'          => '1.1.3',
+    'version'          => '1.1.4',
 ];

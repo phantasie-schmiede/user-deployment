@@ -153,6 +153,8 @@ class PermissionService
 
             if (isset($pageTreeAccessMapping[$page['uid']])) {
                 $permissions['perms_groupid'] = $pageTreeAccessMapping[$page['uid']];
+            } elseif (null !== $parentPageGroupId) {
+                $permissions['perms_groupid'] = $parentPageGroupId;
             }
 
             if ($parentPageGroupId !== $permissions['perms_groupid']) {
