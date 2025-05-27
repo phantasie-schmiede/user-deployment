@@ -176,6 +176,15 @@ all child pages, unless they have a different value set. If a child page has a
 different value set, all pages above it in the tree will receive visibility for
 everybody, so that the users can see the rootline of the page.
 
+**Important:**
+<br>
+The deploy command will update the TSconfig field of page records and
+synchronize the property `TCEMAIN.permissions.groupid` with the values of
+_pageTreeAccess. This is necessary to ensure that newly created pages will
+inherit the correct permissions from the parent page. If a page has no
+_pageTreeAccess value set, the `TCEMAIN.permissions.groupid` will be removed
+from the TSconfig field if it was set before!
+
 #### File imports
 
 There is a special property named *"files"* on the first level that can be used to

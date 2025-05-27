@@ -13,12 +13,16 @@ namespace PSB\PsbUserDeployment\Service;
 use Doctrine\DBAL\Exception as DoctrineException;
 use Exception;
 use PDO;
+use PSB\PsbFoundation\Utility\TypoScript\TypoScriptUtility;
+use PSB\PsbUserDeployment\Data\ExtensionInformation;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\DataHandling\PagePermissionAssembler;
 use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
+use TYPO3\CMS\Core\TypoScript\Parser\TypoScriptParser;
+use TYPO3\CMS\Core\TypoScript\TypoScriptService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use function count;
 
@@ -38,13 +42,16 @@ class PermissionService
         'perms_groupid',
         'perms_user',
         'perms_userid',
+        'TSconfig',
     ];
     protected const string TABLE_NAME      = 'pages';
     protected PagePermissionAssembler $pagePermissionAssembler;
     protected int                     $pagesCounter = 0;
 
     public function __construct(
-        protected readonly SiteFinder $siteFinder,
+        protected readonly ExtensionInformation $extensionInformation,
+        protected readonly SiteFinder           $siteFinder,
+        protected readonly TypoScriptService    $typoScriptService,
     ) {
         $this->pagePermissionAssembler = GeneralUtility::makeInstance(
             PagePermissionAssembler::class,
@@ -56,7 +63,7 @@ class PermissionService
      * @throws DoctrineException
      * @throws Exception
      */
-    public function setPermissionsForAllPages(SymfonyStyle $io, array $pageTreeAccessMapping): void
+    public function setPermissionsForAllPages(array $pageTreeAccessMapping, SymfonyStyle $io = null): void
     {
         $queryBuilder = $this->createQueryBuilder();
         $this->pagesCounter = 0;
@@ -77,7 +84,7 @@ class PermissionService
                 ->executeQuery()
                 ->fetchAllAssociative();
 
-            $io->writeln(
+            $io?->writeln(
                 'Setting permissions for pages, starting at root page with UID ' . $siteConfiguration->getRootPageId(
                 ) . '.'
             );
@@ -85,7 +92,7 @@ class PermissionService
             $this->setPermissionsRecursively($pageData, $pageTreeAccessMapping);
         }
 
-        $io->writeln(
+        $io?->writeln(
             'Finished setting permissions for all pages. ' . $this->pagesCounter . ' pages were processed.'
         );
     }
@@ -157,6 +164,8 @@ class PermissionService
                 $permissions['perms_groupid'] = $parentPageGroupId;
             }
 
+            $this->updateTSconfigForPage($page, $pageTreeAccessMapping[$page['uid']] ?? null);
+
             if ($parentPageGroupId !== $permissions['perms_groupid']) {
                 $setParentShowForEverybody = true;
             }
@@ -199,5 +208,37 @@ class PermissionService
         }
 
         return $setParentShowForEverybody ?? false;
+    }
+
+    private function updateTSconfigForPage(array $page, ?int $permsGroupId = null): void
+    {
+        /** @var TypoScriptParser $typoScriptParser */
+        $typoScriptParser = GeneralUtility::makeInstance(TypoScriptParser::class);
+        $typoScriptParser->parse($page['TSconfig']);
+        $tsconfig = $this->typoScriptService->convertTypoScriptArrayToPlainArray($typoScriptParser->setup);
+
+        if (null !== $permsGroupId) {
+            $tsconfig['TCEMAIN']['permissions']['groupid'] = [
+                TypoScriptUtility::TYPO_SCRIPT_KEYS['COMMENT'] => 'added by ' . $this->extensionInformation->getExtensionKey(
+                    ),
+                $permsGroupId,
+            ];
+        } elseif (isset($tsconfig['TCEMAIN']['permissions']['groupid'])) {
+            unset($tsconfig['TCEMAIN']['permissions']['groupid']);
+        } else {
+            // No change needed.
+            return;
+        }
+
+        $page['TSconfig'] = TypoScriptUtility::convertArrayToTypoScript($tsconfig);
+
+        $queryBuilder = $this->createQueryBuilder();
+        $queryBuilder->update(self::TABLE_NAME)
+            ->where(
+                $queryBuilder->expr()
+                    ->eq('uid', $queryBuilder->createNamedParameter($page['uid'], PDO::PARAM_INT))
+            )
+            ->set('TSconfig', $page['TSconfig']);
+        $queryBuilder->executeStatement();
     }
 }

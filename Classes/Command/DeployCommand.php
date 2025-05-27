@@ -183,7 +183,7 @@ class DeployCommand extends Command
         $updatedRecords = 0;
 
         // The default settings and variables have to be extracted before further processing of the array!
-        $default = $this->extractValue($configuration, '_default');
+        $defaultSettings = $this->extractValue($configuration, '_default');
         $variables = $this->extractValue($configuration, '_variables');
         $identifiers = array_keys($configuration);
         $existingRecords = $this->getExistingRecords($identifiers);
@@ -219,8 +219,8 @@ class DeployCommand extends Command
             }
         }
 
-        foreach ($configuration as $identifier => $settings) {
-            $settings = array_merge($default, $settings);
+        foreach ($configuration as $identifier => $customSettings) {
+            $settings = array_merge($defaultSettings, $customSettings);
 
             // Replace variable references:
             array_walk($settings, static function(&$value) use ($variables) {
@@ -327,7 +327,7 @@ class DeployCommand extends Command
                 array_walk($this->pageTreeAccessMapping, function(&$value) {
                     $value = $this->mapping[RecordType::BackendGroup->getTable()][$value];
                 });
-                $this->permissionService->setPermissionsForAllPages($this->io, $this->pageTreeAccessMapping);
+                $this->permissionService->setPermissionsForAllPages($this->pageTreeAccessMapping, $this->io);
             }
 
             $this->io->writeln(
@@ -382,14 +382,16 @@ class DeployCommand extends Command
      */
     private function importConfigurationFiles(array $configuration): array
     {
+        $additionalConfigurations = [];
+
         foreach ($configuration['files'] as $fileName) {
-            $configuration = array_merge(
-                $configuration,
-                $this->decodeConfigurationFile(GeneralUtility::getFileAbsFileName($fileName))
-            );
+            $additionalConfigurations[] = $this->decodeConfigurationFile(GeneralUtility::getFileAbsFileName($fileName));
         }
 
-        return $configuration;
+        return array_merge(
+            $configuration,
+            ...$additionalConfigurations
+        );
     }
 
     private function prepareSubgroups(string $identifier, array &$settings, array &$subgroupReferences): void
