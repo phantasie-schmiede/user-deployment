@@ -2,19 +2,19 @@
 declare(strict_types=1);
 
 /*
- * This file is part of PSB User Deployment.
+ * This file is part of PSBits ACL Deployment.
  *
  * For the full copyright and license information, please read the
  * LICENSE.txt file that was distributed with this source code.
  */
 
-namespace PSB\PsbUserDeployment\Service;
+namespace PSBits\AclDeployment\Service;
 
 use Doctrine\DBAL\Exception as DoctrineException;
 use Exception;
 use PDO;
-use PSB\PsbFoundation\Utility\TypoScript\TypoScriptUtility;
-use PSB\PsbUserDeployment\Data\ExtensionInformation;
+use PSBits\Foundation\Utility\TypoScript\TypoScriptUtility;
+use PSBits\AclDeployment\Data\ExtensionInformation;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -29,7 +29,7 @@ use function count;
 /**
  * Class PermissionService
  *
- * @package PSB\PsbUserDeployment\Service
+ * @package PSBits\AclDeployment\Service
  */
 class PermissionService
 {

@@ -2,20 +2,20 @@
 declare(strict_types=1);
 
 /*
- * This file is part of PSB User Deployment.
+ * This file is part of PSBits ACL Deployment.
  *
  * For the full copyright and license information, please read the
  * LICENSE.txt file that was distributed with this source code.
  */
 
-namespace PSB\PsbUserDeployment\Data;
+namespace PSBits\AclDeployment\Data;
 
-use PSB\PsbFoundation\Data\AbstractExtensionInformation;
+use PSBits\Foundation\Data\AbstractExtensionInformation;
 
 /**
  * Class ExtensionInformation
  *
- * @package PSB\PsbUserDeployment\Data
+ * @package PSBits\AclDeployment\Data
  */
 class ExtensionInformation extends AbstractExtensionInformation
 {

@@ -2,19 +2,19 @@
 declare(strict_types=1);
 
 /*
- * This file is part of PSB User Deployment.
+ * This file is part of PSBits ACL Deployment.
  *
  * For the full copyright and license information, please read the
  * LICENSE.txt file that was distributed with this source code.
  */
 
-namespace PSB\PsbUserDeployment\Command;
+namespace PSBits\AclDeployment\Command;
 
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Exception;
 use JsonException;
-use PSB\PsbUserDeployment\Enum\RecordType;
-use PSB\PsbUserDeployment\Service\PermissionService;
+use PSBits\AclDeployment\Enum\RecordType;
+use PSBits\AclDeployment\Service\PermissionService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -32,15 +32,15 @@ use function is_string;
  * Class DeployCommand
  *
  * This command imports a JSON file containing the configuration for users and user groups in both backend and frontend.
- * An example configuration can be found here: EXT:psb_user_deployment/Documentation/exampleConfiguration.json
+ * An example configuration can be found here: EXT:acl_deployment/Documentation/exampleConfiguration.json
  * The command can be executed like this:
- * ./vendor/bin/typo3 psbUserDeployment:deploy ./path/to/your/configuration.json
+ * ./vendor/bin/typo3 aclDeployment:deploy ./path/to/your/configuration.json
  *
  * It can be executed in dry-run mode by adding --dry-run or -d:
- * ./vendor/bin/typo3 psbUserDeployment:deploy /path/to/your/configuration.json --dry-run
+ * ./vendor/bin/typo3 aclDeployment:deploy /path/to/your/configuration.json --dry-run
  *
  * If data records that do not exist in the configuration are to be deleted, add --remove or -rm to the command:
- * ./vendor/bin/typo3 psbUserDeployment:deploy /path/to/your/configuration.json --remove
+ * ./vendor/bin/typo3 aclDeployment:deploy /path/to/your/configuration.json --remove
  *
  * Both options can be combined. The order of the options does not matter.
  *
@@ -75,9 +75,9 @@ use function is_string;
  *
  * The command will replace "$subgroup" with "subgroup1,subgroup2".
  *
- * @package PSB\PsbUserDeployment\Command
+ * @package PSBits\AclDeployment\Command
  */
-#[AsCommand(name: 'psbUserDeployment:deploy', description: 'This command creates/deletes/updates users and user groups depending on configuration.')]
+#[AsCommand(name: 'aclDeployment:deploy', description: 'This command creates/deletes/updates users and user groups depending on configuration.')]
 class DeployCommand extends Command
 {
     protected RecordType   $currentRecordType;

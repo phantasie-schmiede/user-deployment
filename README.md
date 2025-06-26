@@ -1,4 +1,4 @@
-# PSB User Deployment
+# PSBits ACL Deployment
 
 ## Optimized import from (or export to) JSON of TYPO3 users and user groups
 
@@ -56,12 +56,12 @@ This package was created to
 It's a good idea to first export the current user configuration.
 
 ```bash
-./vendor/bin/typo3 psbUserDeployment:deploy ./path/to/your/configuration.json
+./vendor/bin/typo3 aclDeployment:deploy ./path/to/your/configuration.json
 ```
 
-| Argument   | Description                                                           | Example                                                 |
-|------------|-----------------------------------------------------------------------|---------------------------------------------------------|
-| `filename` | target path and filename relative to web root or starting with `EXT:` | `EXT:my_extension/Configuration/psbUserDeployment.json` |
+| Argument   | Description                                                           | Example                                             |
+|------------|-----------------------------------------------------------------------|-----------------------------------------------------|
+| `filename` | target path and filename relative to web root or starting with `EXT:` | `EXT:my_extension/Configuration/aclDeployment.json` |
 
 Shortened example output (comments are not part of the JSON, of course, but are
 added here for helpful explanations):
@@ -209,7 +209,7 @@ Example:
 The configuration can be deployed to the database via the command line:
 
 ```bash
-./vendor/bin/typo3 psbUserDeployment:deploy --dry-run --remove ./path/to/your/configuration.json
+./vendor/bin/typo3 aclDeployment:deploy --dry-run --remove ./path/to/your/configuration.json
 ```
 
 | Option      | Short | Description                                                              |

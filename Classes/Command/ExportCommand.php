@@ -2,18 +2,18 @@
 declare(strict_types=1);
 
 /*
- * This file is part of PSB User Deployment.
+ * This file is part of PSBits ACL Deployment.
  *
  * For the full copyright and license information, please read the
  * LICENSE.txt file that was distributed with this source code.
  */
 
-namespace PSB\PsbUserDeployment\Command;
+namespace PSBits\AclDeployment\Command;
 
 use Doctrine\DBAL\Exception;
 use JsonException;
-use PSB\PsbUserDeployment\Enum\RecordType;
-use PSB\PsbUserDeployment\Service\PermissionService;
+use PSBits\AclDeployment\Enum\RecordType;
+use PSBits\AclDeployment\Service\PermissionService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -30,9 +30,9 @@ use function in_array;
 /**
  * Class ExportCommand
  *
- * @package PSB\PsbUserDeployment\Command
+ * @package PSBits\AclDeployment\Command
  */
-#[AsCommand(name: 'psbUserDeployment:export', description: 'This command exports file mounts, users and user groups into a JSON file which can be used as basis for further additions and optimizations.')]
+#[AsCommand(name: 'aclDeployment:export', description: 'This command exports file mounts, users and user groups into a JSON file which can be used as basis for further additions and optimizations.')]
 class ExportCommand extends Command
 {
     private const array DEFAULT_VALUES  = [

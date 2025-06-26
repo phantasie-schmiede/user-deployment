@@ -8,12 +8,7 @@
 	],
 	"autoload": {
 		"psr-4": {
-			"PSB\\PsbUserDeployment\\": "Classes"
-		}
-	},
-	"autoload-dev": {
-		"psr-4": {
-			"PSB\\PsbUserDeployment\\Tests\\": "Tests"
+			"PSBits\\AclDeployment\\": "Classes"
 		}
 	},
 	"config": {
@@ -28,7 +23,7 @@
 	"description": "Versioning and deployment of users, user groups and their privileges",
 	"extra": {
 		"typo3/cms": {
-			"extension-key": "psb_user_deployment",
+			"extension-key": "acl_deployment",
 			"web-dir": ".Build/public"
 		}
 	},
@@ -38,7 +33,7 @@
 		"typo3"
 	],
 	"license": "GPL-3.0-or-later",
-	"name": "psb/user-deployment",
+	"name": "psbits/acl-deployment",
 	"require": {
 		"ext-fileinfo": "*",
 		"ext-pdo": "*",
